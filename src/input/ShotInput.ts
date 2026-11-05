@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { BALL_RADIUS } from '../config/table';
 import type { CameraMode } from '../render/CameraRig';
+import { pointerOnTable } from './pointer';
 
 export type ShotPhase = 'aiming' | 'pulling' | 'striking';
 
@@ -32,8 +32,6 @@ export class ShotInput {
   private pullStartY = 0;
   private charging = false;
   private lastPointerAngle: number | null = null;
-  private raycaster = new THREE.Raycaster();
-  private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -BALL_RADIUS);
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -109,14 +107,7 @@ export class ShotInput {
   /** Aim at the table point under the pointer; with Shift, follow it at a tenth of the rate. */
   private aimAtPointer(e: PointerEvent): void {
     if (this.cameraMode() === 'behind') return;
-    const el = e.target as HTMLElement;
-    const r = el.getBoundingClientRect();
-    const ndc = new THREE.Vector2(
-      ((e.clientX - r.left) / r.width) * 2 - 1,
-      -((e.clientY - r.top) / r.height) * 2 + 1,
-    );
-    this.raycaster.setFromCamera(ndc, this.camera);
-    const hit = this.raycaster.ray.intersectPlane(this.plane, new THREE.Vector3());
+    const hit = pointerOnTable(e, this.camera);
     if (!hit) return;
     const c = this.cueBall();
     const target = Math.atan2(hit.z - c.z, hit.x - c.x);

@@ -10,12 +10,12 @@ import { CueStick } from './render/CueMesh';
 import { AimGuide } from './render/AimGuide';
 import { ShotInput } from './input/ShotInput';
 import { createShotHud } from './ui/ShotHud';
-import { triangleRack } from './game/Rack';
-import { Ball } from './physics/Ball';
-import { World } from './physics/World';
+import { setupBallInHand } from './input/BallInHand';
+import { createGameHud } from './ui/GameHud';
+import { Game } from './game/GameStateMachine';
 import { predictAim } from './physics/aim';
 import { DT, PHYSICS } from './config/physics';
-import { BALL_RADIUS as R, HEAD_SPOT_X } from './config/table';
+import { BALL_RADIUS as R } from './config/table';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111);
@@ -45,43 +45,39 @@ loadTable(scene)
   .catch((err) => console.error('Failed to load table model', err));
 
 const meshes = new Map<number, THREE.Mesh>();
-for (const p of triangleRack()) {
-  const mesh = createBallMesh(p.number);
-  mesh.rotation.set(p.number, p.number * 2, p.number * 3); // vary which number faces up
-  meshes.set(p.number, mesh);
+for (let n = 0; n <= 15; n++) {
+  const mesh = createBallMesh(n);
+  mesh.rotation.set(n, n * 2, n * 3); // vary which number faces up
+  meshes.set(n, mesh);
   scene.add(mesh);
 }
 
-let world: World;
-const cueBall = () => world.balls.find((b) => b.id === 0)!;
-function rack() {
-  world = new World(triangleRack().map((p) => new Ball(p.number, p.x, p.z)));
-  for (const b of world.balls) syncBallMesh(meshes.get(b.id)!, b, 0);
+const game = new Game();
+const syncAll = () => {
+  for (const b of game.world.balls) syncBallMesh(meshes.get(b.id)!, b, 0);
+};
+game.onNewWorld = () => {
+  syncAll();
   input.angle = 0;
-}
-
-/** shortcut: scratches respot on the head spot until Phase 4 adds ball-in-hand. */
-function respotCueBall(b: Ball) {
-  b.state = 'stationary';
-  b.x = HEAD_SPOT_X;
-  b.z = 0;
-  while (
-    world.balls.some(
-      (o) => o !== b && o.state !== 'pocketed' && Math.hypot(o.x - b.x, o.z - b.z) < 2 * R,
-    )
-  )
-    b.x -= 2 * R;
-  syncBallMesh(meshes.get(0)!, b, 0);
-}
+};
+syncAll();
 
 const input = new ShotInput(
   renderer.domElement,
   camera,
-  () => cueBall(),
+  () => game.cueBall,
   () => rig.mode,
 );
+setupBallInHand(renderer.domElement, camera, game);
 const hud = createShotHud(input);
-rack();
+const gameHud = createGameHud(game);
+
+// ring under the cue ball while it's in hand: green = legal spot, red = not
+const handRing = new THREE.Mesh(
+  new THREE.RingGeometry(R * 1.15, R * 1.45, 32).rotateX(-Math.PI / 2),
+  new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.8, depthWrite: false }),
+);
+scene.add(handRing);
 
 const STRIKE_TIME = 0.12; // s for the cue to travel forward
 const pullGap = () => 0.01 + input.power * 0.25;
@@ -98,9 +94,12 @@ const physicsDebug = createPhysicsDebug();
 physicsDebug.visible = false;
 scene.add(physicsDebug);
 
-const settings = { timeScale: 1, aimGuide: true, rack };
+const settings = { timeScale: 1, aimGuide: true, newGame: () => game.newGame() };
 const { stats, gui } = createDebug();
-gui.add(settings, 'rack');
+gui.add(settings, 'newGame').name('new game');
+const rulesFolder = gui.addFolder('Rules').close();
+rulesFolder.add(game.options, 'eightOnBreak', ['win', 'respot']).name('8 on the break');
+rulesFolder.add(game.options, 'scratchOnBreak', ['kitchen', 'anywhere']).name('break scratch');
 gui.add(settings, 'aimGuide').name('aim guide');
 gui.add(settings, 'timeScale', 0.05, 1, 0.01).name('slow-mo');
 gui.add(physicsDebug, 'visible').name('show cushions/pockets');
@@ -119,15 +118,24 @@ renderer.setAnimationLoop((now) => {
   const frameDt = Math.min((now - last) / 1000, 0.1);
   last = now;
   acc += frameDt * settings.timeScale;
+  const world = game.world;
   while (acc >= DT) {
     world.step();
     for (const b of world.balls) syncBallMesh(meshes.get(b.id)!, b, DT);
     acc -= DT;
   }
+  game.update();
 
-  const cb = cueBall();
-  if (!world.isMoving() && cb.state === 'pocketed') respotCueBall(cb);
-  const aiming = !world.isMoving();
+  const cb = game.cueBall;
+  const inHand = game.phase === 'ballInHand';
+  if (inHand) syncBallMesh(meshes.get(0)!, cb, 0);
+  handRing.visible = inHand;
+  handRing.position.set(cb.x, 0.002, cb.z);
+  (handRing.material as THREE.MeshBasicMaterial).color.set(
+    game.canPlace(cb.x, cb.z) ? 0x4caf50 : 0xe53935,
+  );
+
+  const aiming = game.phase === 'aiming';
   input.enabled = aiming && input.phase !== 'striking';
   input.update(frameDt);
 
@@ -137,7 +145,7 @@ renderer.setAnimationLoop((now) => {
     gap = strikeFrom * (1 - Math.min(strikeT, 1));
     if (strikeT >= 1) {
       // power^1.5 gives finer control over soft shots
-      world.strike(0, {
+      game.shoot({
         angle: input.angle,
         speed: PHYSICS.maxCueSpeed * input.power ** 1.5,
         side: input.side,
@@ -157,6 +165,7 @@ renderer.setAnimationLoop((now) => {
   if (aimGuide.group.visible) aimGuide.update(cb.x, cb.z, predictAim(world.balls, 0, input.angle));
 
   hud.update();
+  gameHud.update();
   rig.update(frameDt, cb.x, cb.z, input.angle, aiming);
   renderer.render(scene, camera);
   stats.update();
@@ -171,8 +180,9 @@ if (import.meta.env.DEV)
       input,
       aimGuide,
       rig,
+      game,
       get world() {
-        return world;
+        return game.world;
       },
     },
   });

@@ -17,6 +17,21 @@ test('8 in centre, one solid and one stripe in back corners', () => {
   expect(corners.filter((n) => n > 8)).toHaveLength(1);
 });
 
+test('seeded racks: random but reproducible, always 8 centre and mixed corners', () => {
+  const orders = new Set<string>();
+  for (let seed = 1; seed <= 50; seed++) {
+    const balls = triangleRack(seed).filter((b) => b.number !== 0);
+    expect(new Set(balls.map((b) => b.number)).size).toBe(15);
+    expect(balls[4]!.number).toBe(8);
+    const corners = [balls[10]!.number, balls[14]!.number];
+    expect(corners.filter((n) => n < 8)).toHaveLength(1);
+    expect(corners.filter((n) => n > 8)).toHaveLength(1);
+    orders.add(balls.map((b) => b.number).join());
+  }
+  expect(orders.size).toBeGreaterThan(45);
+  expect(triangleRack(7)).toEqual(triangleRack(7));
+});
+
 test('no overlaps, all on the table', () => {
   for (const a of rack) {
     expect(Math.abs(a.x)).toBeLessThan(TABLE.length / 2 - BALL_RADIUS);
