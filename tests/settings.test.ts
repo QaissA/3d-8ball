@@ -34,6 +34,7 @@ test('stored values are validated and clamped', () => {
     aimGuide: true,
     quality: 'high',
     names: ['Ann', 'x'.repeat(20)],
+    opponent: 'medium',
   });
 });
 

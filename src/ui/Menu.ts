@@ -1,4 +1,4 @@
-import { cleanName, type Quality, type Settings } from './settings';
+import { cleanName, type Opponent, OPPONENTS, type Quality, type Settings } from './settings';
 import './menu.css';
 
 type Screen = 'main' | 'pause' | 'settings' | 'credits';
@@ -25,6 +25,11 @@ export function createMenu(h: MenuHandlers) {
         <h1 id="menu-title">8-Ball Pool</h1>
         <label>Player 1 <input name="p1" maxlength="20" value="${esc(s.names[0])}"></label>
         <label>Player 2 <input name="p2" maxlength="20" value="${esc(s.names[1])}"></label>
+        <label>Opponent
+          <select name="opponent">
+            ${OPPONENTS.map((o) => `<option value="${o}" ${o === s.opponent ? 'selected' : ''}>${o === 'human' ? 'Human (same device)' : `Computer: ${o}`}</option>`).join('')}
+          </select>
+        </label>
         <button data-act="play" class="primary">Play</button>
         <button data-act="settings">Settings</button>
         <button data-act="credits">Credits</button>
@@ -96,6 +101,7 @@ export function createMenu(h: MenuHandlers) {
         cleanName(q<HTMLInputElement>('[name=p1]').value, 'Player 1'),
         cleanName(q<HTMLInputElement>('[name=p2]').value, 'Player 2'),
       ];
+      s.opponent = q<HTMLSelectElement>('[name=opponent]').value as Opponent;
       started = true;
       show(null);
       h.onPlay(names);

@@ -13,6 +13,7 @@ import {
 } from '../rules/EightBallRules';
 import { ShotRecorder } from '../rules/ShotResult';
 import { triangleRack } from './Rack';
+import { clampPlacement, isLegalPlacement } from './placement';
 
 export type Phase = 'ballInHand' | 'aiming' | 'rolling' | 'gameOver';
 export const PLAYER_NAMES = ['Player 1', 'Player 2'] as const;
@@ -64,24 +65,13 @@ export class Game {
 
   /** Legal ball-in-hand spot: on the cloth, behind the head string if required, not touching a ball. */
   canPlace(x: number, z: number): boolean {
-    if (Math.abs(x) > TABLE.length / 2 - R || Math.abs(z) > TABLE.width / 2 - R) return false;
-    if (this.inHand === 'kitchen' && x > HEAD_SPOT_X) return false;
-    return !this.overlaps(x, z, 0);
-  }
-
-  /** Clamp a requested ball-in-hand position into the allowed area. */
-  clampPlacement(x: number, z: number): [number, number] {
-    const maxX = this.inHand === 'kitchen' ? HEAD_SPOT_X : TABLE.length / 2 - R;
-    return [
-      Math.min(Math.max(x, -TABLE.length / 2 + R), maxX),
-      Math.min(Math.max(z, -TABLE.width / 2 + R), TABLE.width / 2 - R),
-    ];
+    return isLegalPlacement(this.world.balls, x, z, this.inHand);
   }
 
   /** Move the cue ball while it's in hand (preview); returns whether the spot is legal. */
   moveCueBall(x: number, z: number): boolean {
     if (this.phase !== 'ballInHand') return false;
-    [x, z] = this.clampPlacement(x, z);
+    [x, z] = clampPlacement(x, z, this.inHand);
     const b = this.cueBall;
     b.x = x;
     b.z = z;

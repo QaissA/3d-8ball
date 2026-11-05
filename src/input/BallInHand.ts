@@ -10,9 +10,9 @@ export function setupBallInHand(
   canvas: HTMLCanvasElement,
   camera: THREE.Camera,
   game: Game,
-  enabled: () => boolean, // false while a menu is open
+  enabled: () => boolean, // false while a menu is open or the computer is playing
 ) {
-  const active = () => game.phase === 'ballInHand';
+  const active = () => game.phase === 'ballInHand' && enabled();
   const follow = (e: PointerEvent) => {
     if (!active() || (e.pointerType !== 'mouse' && e.buttons === 0)) return;
     const hit = pointerOnTable(e, camera);
@@ -24,7 +24,7 @@ export function setupBallInHand(
     if (active() && (e.pointerType !== 'mouse' || e.button === 0)) game.placeCueBall();
   });
   window.addEventListener('keydown', (e) => {
-    if (!active() || !enabled() || isFormTarget(e)) return;
+    if (!active() || isFormTarget(e)) return;
     const step = e.shiftKey ? 0.001 : 0.005;
     const b = game.cueBall;
     const moves: Record<string, [number, number]> = {

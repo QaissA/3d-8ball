@@ -1,4 +1,6 @@
 export type Quality = 'low' | 'medium' | 'high';
+export type Opponent = 'human' | 'easy' | 'medium' | 'hard';
+export const OPPONENTS: Opponent[] = ['human', 'easy', 'medium', 'hard'];
 
 export interface Settings {
   volume: number; // 0..1
@@ -6,6 +8,8 @@ export interface Settings {
   sensitivity: number; // 0.25..3
   quality: Quality;
   names: [string, string];
+  /** Who plays as player 2: a person on the same device, or the computer at a difficulty. */
+  opponent: Opponent;
 }
 
 const KEY = 'pool8.settings';
@@ -17,6 +21,7 @@ const DEFAULTS: Settings = {
   quality:
     typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? 'medium' : 'high',
   names: ['Player 1', 'Player 2'],
+  opponent: 'medium',
 };
 
 const clamp = (v: unknown, lo: number, hi: number, d: number) =>
@@ -41,6 +46,9 @@ export function loadSettings(): Settings {
       ? (raw.quality as Quality)
       : DEFAULTS.quality,
     names: [name(names[0], DEFAULTS.names[0]), name(names[1], DEFAULTS.names[1])],
+    opponent: OPPONENTS.includes(raw.opponent as Opponent)
+      ? (raw.opponent as Opponent)
+      : DEFAULTS.opponent,
   };
 }
 
