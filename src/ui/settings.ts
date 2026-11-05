@@ -1,6 +1,9 @@
+import type { Difficulty } from '../ai/ShotPlanner';
+
 export type Quality = 'low' | 'medium' | 'high';
-export type Opponent = 'human' | 'easy' | 'medium' | 'hard';
-export const OPPONENTS: Opponent[] = ['human', 'easy', 'medium', 'hard'];
+export type Mode = 'solo' | 'practice' | 'local';
+export const MODES: Mode[] = ['solo', 'practice', 'local'];
+export const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
 
 export interface Settings {
   volume: number; // 0..1
@@ -10,8 +13,9 @@ export interface Settings {
   sensitivity: number; // 0.25..3
   quality: Quality;
   names: [string, string];
-  /** Who plays as player 2: a person on the same device, or the computer at a difficulty. */
-  opponent: Opponent;
+  /** solo = vs the computer, practice = alone, local = two people on this device. */
+  mode: Mode;
+  difficulty: Difficulty;
 }
 
 const KEY = 'pool8.settings';
@@ -25,7 +29,8 @@ const DEFAULTS: Settings = {
   quality:
     typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? 'medium' : 'high',
   names: ['Player 1', 'Player 2'],
-  opponent: 'medium',
+  mode: 'solo',
+  difficulty: 'medium',
 };
 
 const clamp = (v: unknown, lo: number, hi: number, d: number) =>
@@ -51,10 +56,20 @@ export function loadSettings(): Settings {
       ? (raw.quality as Quality)
       : DEFAULTS.quality,
     names: [name(names[0], DEFAULTS.names[0]), name(names[1], DEFAULTS.names[1])],
-    opponent: OPPONENTS.includes(raw.opponent as Opponent)
-      ? (raw.opponent as Opponent)
-      : DEFAULTS.opponent,
+    ...modeOf(raw),
   };
+}
+
+/** Current fields, or the older single 'opponent' field ('human' or a difficulty). */
+function modeOf(raw: Record<string, unknown>): Pick<Settings, 'mode' | 'difficulty'> {
+  const old = raw.opponent;
+  const mode = MODES.includes(raw.mode as Mode)
+    ? (raw.mode as Mode)
+    : old === 'human'
+      ? 'local'
+      : DEFAULTS.mode;
+  const difficulty = [raw.difficulty, old].find((d) => DIFFICULTIES.includes(d as Difficulty));
+  return { mode, difficulty: (difficulty as Difficulty | undefined) ?? DEFAULTS.difficulty };
 }
 
 export function saveSettings(s: Settings): void {

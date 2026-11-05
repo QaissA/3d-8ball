@@ -19,8 +19,8 @@ import { createShotHud } from './ui/ShotHud';
 import { setupBallInHand } from './input/BallInHand';
 import { createGameHud } from './ui/GameHud';
 import { Game } from './game/GameStateMachine';
-import { AiPlayer } from './ai/AiPlayer';
-import type { Difficulty } from './ai/ShotPlanner';
+import { ComputerController } from './ai/ComputerController';
+import { type Controller, localController } from './game/Controller';
 import { predictShot, type ShotPreview } from './physics/aim';
 import { legalTargets } from './rules/EightBallRules';
 import { DT, PHYSICS } from './config/physics';
@@ -117,10 +117,11 @@ const menu = createMenu({
   onPlay(names) {
     userSettings.names = names;
     saveSettings(userSettings);
-    game.names = [
-      names[0],
-      userSettings.opponent === 'human' ? names[1] : `Computer (${userSettings.opponent})`,
-    ];
+    const { mode, difficulty } = userSettings;
+    computer.difficulty = difficulty;
+    seats = [localController, mode === 'solo' ? computer : localController];
+    game.practice = mode === 'practice';
+    game.names = [names[0], mode === 'solo' ? `Computer (${difficulty})` : names[1]];
     game.newRack(0);
   },
   onNewGame: () => game.newGame(),
@@ -134,57 +135,12 @@ setupBallInHand(
   renderer.domElement,
   camera,
   game,
-  () => !menu.isOpen() && !isComputer(game.rules.current),
+  () => !menu.isOpen() && seats[game.rules.current]!.kind === 'local',
 );
 
-// Computer opponent (player 2): plans in a worker, lines up the cue, then strikes.
-const ai = new AiPlayer();
-const debugAi: unknown[] = []; // dev only: recent plans the computer chose, for replaying in the console
-const isComputer = (p: number) => p === 1 && userSettings.opponent !== 'human';
-const AI_AIM_MS = 700;
-let aiState: 'idle' | 'thinking' | 'aiming' = 'idle';
-let aiAimStart = 0;
-let aiPower = 0;
-let aiWorld: World | null = null; // a new rack abandons any plan in progress
-function computerTurn(now: number) {
-  if (!isComputer(game.rules.current) || (game.phase !== 'aiming' && game.phase !== 'ballInHand')) {
-    aiState = 'idle';
-    return;
-  }
-  // a plan belongs to one position: drop it on a new rack or once the turn has moved on
-  if (aiWorld !== game.world || (aiState === 'aiming' && game.phase !== 'aiming')) aiState = 'idle';
-  if (aiState === 'aiming' && input.phase === 'aiming') {
-    const t = (now - aiAimStart) / AI_AIM_MS;
-    input.power = aiPower * Math.min(1, t); // visible pull-back
-    if (t >= 1.3) {
-      input.phase = 'striking';
-      input.onRelease();
-    }
-  }
-  if (aiState !== 'idle') return;
-  aiState = 'thinking';
-  const world = (aiWorld = game.world);
-  ai.think(game, userSettings.opponent as Difficulty).then((p) => {
-    if (game.world !== world || !isComputer(game.rules.current)) return void (aiState = 'idle');
-    if (import.meta.env.DEV && debugAi.length < 50)
-      debugAi.push({
-        plan: p,
-        balls: world.balls.map((b) => ({ ...b })),
-        rules: game.rules,
-        inHand: game.phase === 'ballInHand' ? game.inHand : 'none',
-      });
-    if (game.phase === 'ballInHand') {
-      if (p.place) game.moveCueBall(...p.place);
-      if (!game.placeCueBall()) return void (aiState = 'idle'); // position changed: think again
-    }
-    input.angle = p.shot.angle;
-    input.side = p.shot.side ?? 0;
-    input.top = p.shot.top ?? 0;
-    aiPower = Math.min(1, (p.shot.speed / PHYSICS.maxCueSpeed) ** (2 / 3)); // inverse of power^1.5
-    aiAimStart = performance.now();
-    aiState = 'aiming';
-  });
-}
+// Who plays each seat; set from the menu. The computer, when playing, is player 2.
+const computer = new ComputerController(game, input, 1, userSettings.difficulty);
+let seats: Controller[] = [localController, localController];
 
 // ring under the cue ball while it's in hand: green = legal spot, red = not
 const handRing = new THREE.Mesh(
@@ -278,11 +234,11 @@ renderer.setAnimationLoop((now) => {
     game.canPlace(cb.x, cb.z) ? 0x4caf50 : 0xe53935,
   );
 
-  if (paused) aiAimStart += frameDt * 1000;
-  else computerTurn(now);
-  const computer = isComputer(game.rules.current);
+  const seat = seats[game.rules.current]!;
+  if (!paused) seat.update(frameDt);
+  const local = seat.kind === 'local';
   const aiming = game.phase === 'aiming';
-  input.enabled = aiming && !paused && !computer && input.phase !== 'striking';
+  input.enabled = aiming && !paused && local && input.phase !== 'striking';
   input.update(frameDt);
 
   let gap = pullGap();
@@ -293,7 +249,7 @@ renderer.setAnimationLoop((now) => {
       game.shoot(currentShot(input.power));
       input.phase = 'aiming';
       input.power = 0;
-      aiState = 'idle';
+      seat.reset();
     }
   }
 
@@ -302,8 +258,7 @@ renderer.setAnimationLoop((now) => {
     cue.root.visible = showCue;
     cue.update(cb.x, cb.z, input.angle, input.side, input.top, gap);
   }
-  aimGuide.group.visible =
-    userSettings.aimGuide && showCue && !computer && input.phase !== 'striking';
+  aimGuide.group.visible = userSettings.aimGuide && showCue && local && input.phase !== 'striking';
   if (aimGuide.group.visible) {
     // before pull-back the power is 0, so preview a medium shot to keep the lines visible
     const shot = currentShot(input.power > 0 ? input.power : PREVIEW_POWER);
@@ -338,7 +293,7 @@ if (import.meta.env.DEV)
       aimGuide,
       rig,
       game,
-      debugAi,
+      computer,
       get world() {
         return game.world;
       },

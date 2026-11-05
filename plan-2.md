@@ -81,22 +81,23 @@ Order: **A → B → C → D → E**. A and B are self-contained UI work you can
 **Today:** `settings.opponent: 'human' | 'easy' | 'medium' | 'hard'`. The AI is driven by `computerTurn()` in `main.ts`, which writes to `input.angle/power/side/top` and calls `input.onRelease()`.
 
 ### Tasks
-- [ ] Generalize that into **player controllers**, with one per seat:
+- [x] Generalize that into **player controllers**, with one per seat:
   ```ts
   interface Controller { kind: 'local' | 'computer' | 'remote'; update(now: number): void; dispose(): void }
   ```
+  - (done as `src/game/Controller.ts` + `src/ai/ComputerController.ts`; `reset()` instead of `dispose()`; kind is `local | computer` until Phase E adds `remote`)
   - `LocalController`: today's mouse/touch input, enabled only on its own turn.
   - `ComputerController`: move `computerTurn()` out of `main.ts` as is (keep its stale-plan guards).
   - `RemoteController` (Phase E): applies placement, aim and shot messages from the socket the same way the AI does.
   - The `canInteract` predicate for `setupBallInHand` and `ShotInput` becomes `controllers[game.rules.current].kind === 'local'`.
-- [ ] `settings.ts`: replace `opponent` with `mode: 'solo' | 'practice' | 'local' | 'online'` plus `difficulty`. Migrate old saved settings: `opponent: 'human'` → `local`, otherwise `solo` + that difficulty. Validate it like the other fields. Update `tests/settings.test.ts`.
-- [ ] **Practice mode:** one seat. The turn never passes, and fouls only give ball in hand. Add a "Re-rack" button. Implement it as an option in `Game` (`options.practice`) that the existing `judge` flow respects, so `EightBallRules` stays pure. Add a test.
-- [ ] Menu (`ui/Menu.ts`): the main screen becomes mode buttons:
+- [x] `settings.ts`: replace `opponent` with `mode: 'solo' | 'practice' | 'local'` (`online` comes in Phase E) plus `difficulty`. Migrate old saved settings: `opponent: 'human'` → `local`, otherwise `solo` + that difficulty. Validate it like the other fields. Update `tests/settings.test.ts`.
+- [x] **Practice mode:** one seat. The turn never passes, and fouls only give ball in hand. Add a "Re-rack" button. Implemented as `Game.practice` (not in `options`, which the AI worker also receives) that the existing `judge` flow respects, so `EightBallRules` stays pure. Add a test.
+- [x] Menu (`ui/Menu.ts`): a mode picker on the main screen showing only that mode's fields (Online entry deferred to Phase E):
   - **Solo:** difficulty select, Player name.
   - **Practice:** name.
   - **Local 2P:** two names (today's form).
   - **Online:** goes to the Online screen (Phase E): Create room or Join with code.
-- [ ] HUD: show "You" or "Computer" or the opponent's name. Keep `esc()` for every name, since online names come from another user.
+- [x] HUD (practice hides player 2 and shows Re-rack; no "You" label yet): show "You" or "Computer" or the opponent's name. Keep `esc()` for every name, since online names come from another user.
 
 **Done when:** all three offline modes start from the menu, and the AI runs through `ComputerController` with no behaviour change (tests green).
 

@@ -104,3 +104,46 @@
 .menu section[hidden] {
   display: none;
 }
+.menu fieldset.modes {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.menu fieldset.modes legend {
+  margin-bottom: 4px;
+  color: #bbb;
+  font-size: 13px;
+}
+.menu fieldset.modes label {
+  flex: 1;
+}
+.menu fieldset.modes input {
+  position: absolute;
+  opacity: 0;
+}
+.menu fieldset.modes span {
+  display: block;
+  padding: 8px 4px;
+  border-radius: 6px;
+  border: 1px solid #fff3;
+  background: #0006;
+  color: #eee;
+  font-size: 14px;
+  text-align: center;
+  cursor: pointer;
+}
+.menu fieldset.modes input:checked + span {
+  background: #ffc107;
+  border-color: #ffc107;
+  color: #111;
+  font-weight: 600;
+}
+.menu fieldset.modes input:focus-visible + span {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+.menu label[hidden] {
+  display: none;
+}

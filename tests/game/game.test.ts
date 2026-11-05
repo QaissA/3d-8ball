@@ -63,3 +63,21 @@ test('scratch: opponent gets ball in hand anywhere and the cue ball is back on t
     if (b.id !== 0 && b.state !== 'pocketed')
       expect(Math.hypot(b.x - game.cueBall.x, b.z - game.cueBall.z)).toBeGreaterThanOrEqual(2 * R);
 });
+
+test('practice: a scratch keeps the turn (with ball in hand) and re-racks stay with player 1', () => {
+  const game = new Game(() => 5);
+  game.practice = true;
+  game.rules = { ...game.rules, isBreak: false, groups: ['solids', 'stripes'] };
+  game.phase = 'aiming';
+  const p = POCKETS[3]!;
+  game.cueBall.x = p.x + 0.3;
+  game.cueBall.z = p.z + 0.3;
+  game.shoot({ angle: Math.atan2(-0.3, -0.3), speed: 2 });
+  settle(game);
+  expect(game.phase).toBe('ballInHand');
+  expect(game.rules.current).toBe(0);
+  game.newGame();
+  game.newGame();
+  expect(game.rules.current).toBe(0);
+  expect(game.rules.isBreak).toBe(true);
+});

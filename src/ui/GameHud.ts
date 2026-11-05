@@ -37,13 +37,18 @@ export function createGameHud(game: Game) {
     /** Big transient banner for the outcome of a shot (called before the game applies it). */
     announce(o: Outcome) {
       const s = o.state;
-      if (s.winner !== null) showBanner(`${game.names[s.winner]} wins!`, 'win');
+      if (s.winner !== null && game.practice)
+        showBanner(
+          s.winner === 0 ? 'Table cleared!' : 'Game over',
+          s.winner === 0 ? 'win' : 'foul',
+        );
+      else if (s.winner !== null) showBanner(`${game.names[s.winner]} wins!`, 'win');
       else if (o.foul) showBanner(o.foul, 'foul');
       else if (s.current !== game.rules.current) showBanner(`${game.names[s.current]}'s turn`);
     },
     update() {
       const r = game.rules;
-      const key = JSON.stringify([r, game.message, game.phase, game.names]);
+      const key = JSON.stringify([r, game.message, game.phase, game.names, game.practice]);
       if (key === last) return; // only touch the DOM when something changed
       last = key;
       players.forEach((el, i) => {
@@ -56,8 +61,11 @@ export function createGameHud(game: Game) {
         el.classList.toggle('active', game.phase !== 'gameOver' && r.current === i);
         el.classList.toggle('winner', r.winner === i);
       });
+      players[1]!.hidden = game.practice;
       msg.textContent = game.message;
-      button.hidden = game.phase !== 'gameOver';
+      // practice: re-rack any time
+      button.hidden = game.phase !== 'gameOver' && !game.practice;
+      button.textContent = game.practice ? 'Re-rack' : 'New game';
     },
   };
 }

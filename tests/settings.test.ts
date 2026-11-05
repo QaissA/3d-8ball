@@ -36,11 +36,25 @@ test('stored values are validated and clamped', () => {
     miniMap: true,
     quality: 'high',
     names: ['Ann', 'x'.repeat(20)],
-    opponent: 'medium',
+    mode: 'solo',
+    difficulty: 'medium',
   });
 });
 
 test('corrupt JSON: defaults', () => {
   g.localStorage = { getItem: () => '{not json' };
   expect(loadSettings().names).toEqual(['Player 1', 'Player 2']);
+});
+
+test('old single opponent field is migrated to mode + difficulty', () => {
+  g.localStorage = { getItem: () => JSON.stringify({ opponent: 'human' }) };
+  expect(loadSettings()).toMatchObject({ mode: 'local', difficulty: 'medium' });
+  g.localStorage = { getItem: () => JSON.stringify({ opponent: 'hard' }) };
+  expect(loadSettings()).toMatchObject({ mode: 'solo', difficulty: 'hard' });
+  g.localStorage = {
+    getItem: () => JSON.stringify({ mode: 'practice', difficulty: 'easy', opponent: 'human' }),
+  };
+  expect(loadSettings()).toMatchObject({ mode: 'practice', difficulty: 'easy' });
+  g.localStorage = { getItem: () => JSON.stringify({ mode: 'online', difficulty: 'godlike' }) };
+  expect(loadSettings()).toMatchObject({ mode: 'solo', difficulty: 'medium' });
 });

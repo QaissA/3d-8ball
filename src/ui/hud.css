@@ -219,3 +219,6 @@
 .minimap-frame[hidden] {
   display: none;
 }
+.game-hud .player[hidden] {
+  display: none;
+}

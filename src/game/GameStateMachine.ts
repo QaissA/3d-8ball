@@ -36,6 +36,8 @@ export class Game {
   /** Called after each shot is judged (sound, banners). */
   onResolve: (o: Outcome) => void = () => {};
   names: [string, string] = [...PLAYER_NAMES];
+  /** One player alone: the turn never passes and player 1 always breaks; fouls give ball in hand. */
+  practice = false;
   private recorder = new ShotRecorder();
   private breaker: Player = 0;
 
@@ -48,7 +50,7 @@ export class Game {
   }
 
   newGame(): void {
-    this.newRack(this.breaker === 0 ? 1 : 0); // alternate breaks
+    this.newRack(this.practice || this.breaker === 1 ? 0 : 1); // alternate breaks
   }
 
   newRack(breaker: Player): void {
@@ -102,6 +104,7 @@ export class Game {
   private resolve(): void {
     const shooter = this.names[this.rules.current];
     const o = judge(this.rules, this.recorder.result, this.options);
+    if (this.practice) o.state.current = 0; // judge builds a fresh state, safe to adjust
     this.onResolve(o);
     if (o.rerack) {
       this.newRack(o.state.current);
@@ -118,6 +121,11 @@ export class Game {
 
     if (this.rules.winner !== null) {
       this.phase = 'gameOver';
+      if (this.practice) {
+        this.message =
+          this.rules.winner === 0 ? 'Table cleared!' : `Game over: ${o.note}. Re-rack to try again`;
+        return;
+      }
       this.message = `${this.names[this.rules.winner]} wins! (${shooter}: ${o.note})`;
       return;
     }

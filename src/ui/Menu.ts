@@ -1,4 +1,11 @@
-import { cleanName, type Opponent, OPPONENTS, type Quality, type Settings } from './settings';
+import type { Difficulty } from '../ai/ShotPlanner';
+import { cleanName, DIFFICULTIES, type Mode, MODES, type Quality, type Settings } from './settings';
+
+const MODE_LABELS: Record<Mode, string> = {
+  solo: 'Vs computer',
+  practice: 'Practice',
+  local: '2 players',
+};
 import './menu.css';
 
 type Screen = 'main' | 'pause' | 'settings' | 'credits';
@@ -23,11 +30,15 @@ export function createMenu(h: MenuHandlers) {
     <div class="menu" role="dialog" aria-modal="true" aria-labelledby="menu-title">
       <section data-screen="main">
         <h1 id="menu-title">8-Ball Pool</h1>
+        <fieldset class="modes">
+          <legend>Mode</legend>
+          ${MODES.map((m) => `<label><input type="radio" name="mode" value="${m}" ${m === s.mode ? 'checked' : ''}><span>${MODE_LABELS[m]}</span></label>`).join('')}
+        </fieldset>
         <label>Player 1 <input name="p1" maxlength="20" value="${esc(s.names[0])}"></label>
-        <label>Player 2 <input name="p2" maxlength="20" value="${esc(s.names[1])}"></label>
-        <label>Opponent
-          <select name="opponent">
-            ${OPPONENTS.map((o) => `<option value="${o}" ${o === s.opponent ? 'selected' : ''}>${o === 'human' ? 'Human (same device)' : `Computer: ${o}`}</option>`).join('')}
+        <label data-for="local">Player 2 <input name="p2" maxlength="20" value="${esc(s.names[1])}"></label>
+        <label data-for="solo">Computer
+          <select name="difficulty">
+            ${DIFFICULTIES.map((d) => `<option ${d === s.difficulty ? 'selected' : ''}>${d}</option>`).join('')}
           </select>
         </label>
         <button data-act="play" class="primary">Play</button>
@@ -96,6 +107,15 @@ export function createMenu(h: MenuHandlers) {
   };
   overlay.querySelector('section[data-screen=settings]')!.addEventListener('input', emitSettings);
 
+  // show only the fields the chosen mode uses
+  const mode = () => q<HTMLInputElement>('[name=mode]:checked').value as Mode;
+  const showModeFields = () =>
+    overlay.querySelectorAll<HTMLElement>('[data-for]').forEach((el) => {
+      el.hidden = el.dataset.for !== mode();
+    });
+  q('fieldset.modes').addEventListener('change', showModeFields);
+  showModeFields();
+
   overlay.addEventListener('click', (e) => {
     const act = (e.target as HTMLElement).closest<HTMLElement>('[data-act]')?.dataset.act;
     if (act === 'play') {
@@ -103,7 +123,8 @@ export function createMenu(h: MenuHandlers) {
         cleanName(q<HTMLInputElement>('[name=p1]').value, 'Player 1'),
         cleanName(q<HTMLInputElement>('[name=p2]').value, 'Player 2'),
       ];
-      s.opponent = q<HTMLSelectElement>('[name=opponent]').value as Opponent;
+      s.mode = mode();
+      s.difficulty = q<HTMLSelectElement>('[name=difficulty]').value as Difficulty;
       started = true;
       show(null);
       h.onPlay(names);
