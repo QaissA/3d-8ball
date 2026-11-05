@@ -26,7 +26,9 @@ export function createRenderer(camera: THREE.PerspectiveCamera): THREE.WebGLRend
   renderer.domElement.addEventListener('webglcontextlost', () => (lost.hidden = false));
   renderer.domElement.addEventListener('webglcontextrestored', () => (lost.hidden = true));
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  // Neutral keeps the cloth saturated; ACES washed it out to pastel
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = 0.95;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;

@@ -14,9 +14,10 @@ export function addLighting(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
   };
   buildEnvironment();
   renderer.domElement.addEventListener('webglcontextrestored', buildEnvironment);
-  scene.environmentIntensity = 0.4;
+  scene.environmentIntensity = 0.25;
 
-  const lamp = new THREE.SpotLight(0xfff4e0, 40, 4, Math.PI / 4, 0.6, 1.5);
+  // a pool of light over the table that falls off toward the rails (a natural vignette)
+  const lamp = new THREE.SpotLight(0xfff4e0, 32, 4, Math.PI / 4.4, 0.8, 1.5);
   lamp.position.set(0, 1.4, 0);
   lamp.castShadow = true;
   lamp.shadow.mapSize.set(2048, 2048);
@@ -24,7 +25,7 @@ export function addLighting(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
   lamp.shadow.camera.far = 2;
   lamp.shadow.bias = -0.0005;
   scene.add(lamp, lamp.target);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x202020, 0.3));
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x202020, 0.15));
   return { lamp };
 }
 
