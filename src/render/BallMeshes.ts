@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BALL_RADIUS } from '../config/table';
+import type { Ball } from '../physics/Ball';
 
 const COLORS = [
   '#f2c200',
@@ -45,6 +46,20 @@ function ballTexture(n: number): THREE.CanvasTexture {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 8;
   return tex;
+}
+
+const _q = new THREE.Quaternion();
+const _axis = new THREE.Vector3();
+
+/** Copy physics state to the mesh and roll it by ω·dt, so the numbers visibly turn. */
+export function syncBallMesh(mesh: THREE.Mesh, b: Ball, dt: number): void {
+  mesh.visible = b.state !== 'pocketed';
+  mesh.position.set(b.x, BALL_RADIUS, b.z);
+  const w = Math.hypot(b.wx, b.wy, b.wz);
+  if (w > 0) {
+    _axis.set(b.wx / w, b.wy / w, b.wz / w);
+    mesh.quaternion.premultiply(_q.setFromAxisAngle(_axis, w * dt));
+  }
 }
 
 export function createBallMesh(n: number): THREE.Mesh {
