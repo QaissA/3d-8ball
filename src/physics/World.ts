@@ -24,7 +24,7 @@ export type PhysicsEvent =
 /** Safety cap on collisions handled within one step (a tight cluster resolves in a few dozen). */
 const MAX_EVENTS_PER_STEP = 2000;
 
-type NextEvent =
+export type NextEvent =
   | { kind: 'ball'; t: number; i: number; j: number }
   | { kind: 'cushion'; t: number; i: number; nx: number; nz: number }
   | { kind: 'pocket'; t: number; i: number; p: number };
@@ -87,7 +87,8 @@ export class World {
     this.catchEscapes();
   }
 
-  private nextEvent(maxT: number): NextEvent | null {
+  /** Earliest collision or pocket entry within maxT, given current velocities (also used for aim prediction). */
+  nextEvent(maxT: number): NextEvent | null {
     let best: NextEvent | null = null;
     let bestT = maxT;
     const balls = this.balls;

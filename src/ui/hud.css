@@ -1,0 +1,78 @@
+.hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font:
+    13px/1.4 system-ui,
+    sans-serif;
+  color: #ddd;
+  user-select: none;
+}
+.hud .spin,
+.hud .power {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  transition: opacity 0.2s;
+}
+.hud.disabled .spin,
+.hud.disabled .power {
+  opacity: 0.35;
+}
+.hud .spin {
+  right: 72px;
+  bottom: 24px;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #fff, #d9d6cc 70%, #a9a69c);
+  box-shadow: 0 2px 10px #0008;
+  cursor: crosshair;
+}
+.hud .spin::after {
+  /* miscue limit */
+  content: '';
+  position: absolute;
+  inset: 15%;
+  border-radius: 50%;
+  border: 1px dashed #0004;
+}
+.hud .spin-dot {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #c62828;
+  box-shadow: 0 0 0 2px #fff8;
+}
+.hud .power {
+  right: 24px;
+  bottom: 24px;
+  width: 32px;
+  height: 220px;
+  border-radius: 6px;
+  background: #0009;
+  border: 1px solid #fff3;
+  overflow: hidden;
+  cursor: ns-resize;
+}
+.hud .power-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  background: linear-gradient(#4caf50, #ffc107 60%, #e53935);
+}
+.hud .hint {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  right: 200px;
+  color: #bbb;
+  text-shadow: 0 1px 2px #000;
+}
+@media (max-width: 600px) {
+  .hud .hint {
+    display: none;
+  }
+}

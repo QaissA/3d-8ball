@@ -9,6 +9,7 @@ export const PHYSICS = {
   cushionRestitution: 0.8,
   cushionFriction: 0.15,
   maxCueSpeed: 10,
+  squirt: 0.05, // rad of cue-ball deflection at full side spin (~3°, a standard shaft)
 };
 
 /** Fixed physics timestep (s). Collisions inside a step are solved by time of impact. */
