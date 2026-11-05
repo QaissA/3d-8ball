@@ -1,9 +1,20 @@
 import { afterAll, beforeAll, expect, test } from 'vitest';
-import type { AddressInfo } from 'node:net';
-import { io as connect, type Socket } from 'socket.io-client';
-import { createGameServer } from '../../server/server.ts';
-import { Rooms, RECONNECT_GRACE_MS, WAITING_MAX_MS } from '../../server/rooms.ts';
-import { isSnapshot, type ReadyMsg, type Snapshot } from '../../src/net/protocol.ts';
+import {
+  canAct,
+  closesAt,
+  createRoom,
+  joinRoom,
+  newCode,
+  newRack,
+  RECONNECT_GRACE_MS,
+  seatOfToken,
+  setConnected,
+  settle,
+  shoot,
+  WAITING_MAX_MS,
+} from '../../server/rooms';
+import { isSnapshot, type ReadyMsg, type Snapshot } from '../../src/net/protocol';
+import { startWorker } from './worker';
 
 const snapshot = (current: 0 | 1): Snapshot => ({
   balls: Array.from({ length: 16 }, (_, id) => ({ id, x: id * 0.05 - 0.4, z: 0, pocketed: false })),
@@ -13,31 +24,30 @@ const snapshot = (current: 0 | 1): Snapshot => ({
   message: '',
 });
 
-test('rooms: turn order, settle passes the turn, expiry', () => {
-  const rooms = new Rooms();
-  const r = rooms.create('Ann', 'a', 0);
-  expect(r.code).toMatch(/^[A-HJ-KM-NP-Z2-9]{5}$/);
-  expect(rooms.canAct(r, 0)).toBe(false); // nobody joined yet
-  expect(rooms.join(r.code, 'Bob', 'b').ok).toBe(true);
-  expect(rooms.join(r.code, 'Cy', 'c')).toEqual({ ok: false, error: 'That room is full' });
+test('room rules: turn order, settle passes the turn, expiry', () => {
+  expect(newCode()).toMatch(/^[A-HJ-KM-NP-Z2-9]{5}$/);
+  const r = createRoom('ABCDE', 'Ann', 0);
+  expect(canAct(r, 0)).toBe(false); // nobody joined yet
+  expect(closesAt(r)).toBe(WAITING_MAX_MS);
+  const joined = joinRoom(r, 'Bob');
+  expect(joined.ok).toBe(true);
+  expect(joinRoom(r, 'Cy')).toEqual({ ok: false, error: 'That room is full' });
   expect(r.turn).toBe(0); // host breaks first
-  expect(rooms.shoot(r, 1)).toBe(false);
-  expect(rooms.shoot(r, 0)).toBe(true);
-  expect(rooms.shoot(r, 0)).toBe(false); // waiting for the result
-  expect(rooms.settle(r, 1, snapshot(1))).toBe(false); // only the shooter reports
-  expect(rooms.settle(r, 0, snapshot(1))).toBe(true);
-  expect(rooms.canAct(r, 1)).toBe(true);
-  rooms.newRack(r);
+  expect(shoot(r, 1)).toBe(false);
+  expect(shoot(r, 0)).toBe(true);
+  expect(shoot(r, 0)).toBe(false); // waiting for the result
+  expect(settle(r, 1, snapshot(1))).toBe(false); // only the shooter reports
+  expect(settle(r, 0, snapshot(1))).toBe(true);
+  expect(canAct(r, 1)).toBe(true);
+  newRack(r);
   expect(r.turn).toBe(1); // breaks alternate
 
-  expect(rooms.resume(r.code, 'wrong', 'x').ok).toBe(false);
-  rooms.disconnect(r, 1, 1000);
-  expect(rooms.expired(1000 + RECONNECT_GRACE_MS - 1)).toEqual([]);
-  expect(rooms.resume(r.code, r.players[1]!.token, 'b2').ok).toBe(true);
-  expect(rooms.expired(1000 + RECONNECT_GRACE_MS + 1)).toEqual([]);
-
-  const waiting = rooms.create('Dee', 'd', 0);
-  expect(rooms.expired(WAITING_MAX_MS + 1)).toEqual([waiting]);
+  expect(seatOfToken(r, 'wrong')).toBeNull();
+  expect(seatOfToken(r, joined.ok ? joined.token : '')).toBe(1);
+  setConnected(r, 1, false, 1000);
+  expect(closesAt(r)).toBe(1000 + RECONNECT_GRACE_MS);
+  setConnected(r, 1, true, 2000);
+  expect(closesAt(r)).toBeGreaterThan(1000 + RECONNECT_GRACE_MS);
 });
 
 test('snapshot validation rejects bad tables', () => {
@@ -49,110 +59,120 @@ test('snapshot validation rejects bad tables', () => {
   expect(isSnapshot({ ...snapshot(0), rules: { ...snapshot(0).rules, current: 2 } })).toBe(false);
 });
 
-// ---- end to end over real sockets ----
+// ---- the real worker, over real websockets ----
 
-let server: ReturnType<typeof createGameServer>;
-let url = '';
-const sockets: Socket[] = [];
+let server: Awaited<ReturnType<typeof startWorker>>;
 beforeAll(async () => {
-  server = createGameServer({ origins: [] });
-  await new Promise<void>((r) => server.http.listen(0, r));
-  url = `http://localhost:${(server.http.address() as AddressInfo).port}`;
-});
-afterAll(() => {
-  sockets.forEach((s) => s.close());
-  server.close();
-});
+  server = await startWorker();
+}, 60_000);
+afterAll(() => server?.worker.stop());
 
-const client = async () => {
-  const s = connect(url, { transports: ['websocket'], forceNew: true });
-  sockets.push(s);
-  await new Promise<void>((r) => s.once('connect', () => r()));
-  return s;
-};
-const next = <T>(s: Socket, event: string, ms = 1000) =>
-  new Promise<T | 'timeout'>((resolve) => {
-    const t = setTimeout(() => resolve('timeout'), ms);
-    s.once(event, (m: T) => {
-      clearTimeout(t);
-      resolve(m);
-    });
+interface Client {
+  ws: WebSocket;
+  next: (type: string, ms?: number) => Promise<unknown>;
+  send: (type: string, data?: unknown) => void;
+}
+
+/** Connect, send the hello, and collect messages by type. */
+function client(path: string, hello: object): Promise<Client> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(server.url + path);
+    const inbox: { type: string; data: unknown }[] = [];
+    const waiters: (() => void)[] = [];
+    ws.onmessage = (e) => {
+      inbox.push(JSON.parse(String(e.data)));
+      waiters.splice(0).forEach((w) => w());
+    };
+    ws.onerror = () => reject(new Error('socket error'));
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'hello', data: hello }));
+      resolve({
+        ws,
+        send: (type, data) => ws.send(JSON.stringify({ type, data })),
+        next: (type, ms = 1000) =>
+          new Promise((res) => {
+            let done = false; // a timed-out wait must not swallow a later message
+            const t = setTimeout(() => {
+              done = true;
+              res('timeout');
+            }, ms);
+            const check = () => {
+              if (done) return;
+              const i = inbox.findIndex((m) => m.type === type);
+              if (i < 0) return void waiters.push(check);
+              clearTimeout(t);
+              res(inbox.splice(i, 1)[0]!.data);
+            };
+            check();
+          }),
+      });
+    };
   });
-const call = (s: Socket, event: string, msg: unknown) =>
-  s.timeout(1000).emitWithAck(event, msg) as Promise<Record<string, unknown>>;
+}
 
-test('two players: create, join, turn-checked relay, settle, disconnect', async () => {
-  const a = await client();
-  const b = await client();
-  const created = await call(a, 'room:create', { name: '  Ann\u0007 ' });
-  expect(created.ok).toBe(true);
-  const code = created.code as string;
+test('two players: create, join, turn-checked relay, settle, resume, leave', async () => {
+  const a = await client('/rooms/new', { op: 'create', name: '  Ann\u0007 ' });
+  const created = (await a.next('room:created')) as { code: string; token: string };
+  expect(created.code).toMatch(/^[A-Z2-9]{5}$/);
 
-  expect(await call(b, 'room:join', { code: 'ZZZZZ', name: 'Bob' })).toMatchObject({ ok: false });
-  expect(await call(b, 'room:join', { code, name: '' })).toMatchObject({ ok: false });
-  const readyA = next<ReadyMsg>(a, 'room:ready');
-  const readyB = next<ReadyMsg>(b, 'room:ready');
-  expect(await call(b, 'room:join', { code: code.toLowerCase(), name: 'Bob' })).toMatchObject({
-    ok: true,
-  });
-  const [ra, rb] = (await Promise.all([readyA, readyB])) as ReadyMsg[];
+  const nobody = await client('/rooms/ZZZZZ', { op: 'join', name: 'Bob' });
+  expect(await nobody.next('error')).toEqual({ error: 'No room with that code' });
+
+  const b = await client(`/rooms/${created.code.toLowerCase()}`, { op: 'join', name: 'Bob' });
+  const joined = (await b.next('room:joined')) as { token: string };
+  const [ra, rb] = (await Promise.all([a.next('room:ready'), b.next('room:ready')])) as ReadyMsg[];
   expect(ra).toMatchObject({ seat: 0, names: ['Ann', 'Bob'], breaker: 0 });
   expect(rb).toMatchObject({ seat: 1, seed: ra!.seed });
 
   const shot = { angle: 0.1, power: 0.8, side: 0, top: 0.2, cue: [-0.5, 0] };
-  // not B's turn: dropped
-  const nothing = next(a, 'game:shoot', 200);
-  b.emit('game:shoot', shot);
-  expect(await nothing).toBe('timeout');
-  // invalid payload from A: dropped
-  const invalid = next(b, 'game:shoot', 200);
-  a.emit('game:shoot', { ...shot, power: 7 });
-  expect(await invalid).toBe('timeout');
-  // A aims and shoots: relayed
-  const aim = next(b, 'game:aim');
-  a.emit('game:aim', { angle: 1, power: 0, side: 0, top: 0 });
-  expect(await aim).toMatchObject({ angle: 1 });
-  const got = next(b, 'game:shoot');
-  a.emit('game:shoot', shot);
-  expect(await got).toEqual(shot);
-  // a second shot before the result is in: dropped
-  const again = next(b, 'game:shoot', 200);
-  a.emit('game:shoot', shot);
-  expect(await again).toBe('timeout');
-  // A reports the result, the turn passes to B
-  const settled = next(b, 'game:settled');
-  a.emit('game:settled', snapshot(1));
-  expect(await settled).toMatchObject({ rules: { current: 1 } });
-  const bShot = next(a, 'game:shoot');
-  b.emit('game:shoot', shot);
-  expect(await bShot).toEqual(shot);
+  b.send('game:shoot', shot); // not B's turn
+  expect(await a.next('game:shoot', 300)).toBe('timeout');
+  a.send('game:shoot', { ...shot, power: 7 }); // invalid
+  expect(await b.next('game:shoot', 300)).toBe('timeout');
+  a.send('game:aim', { angle: 1, power: 0, side: 0, top: 0 });
+  expect(await b.next('game:aim')).toMatchObject({ angle: 1 });
+  a.send('game:shoot', shot);
+  expect(await b.next('game:shoot')).toEqual(shot);
+  a.send('game:shoot', shot); // before the result is in
+  expect(await b.next('game:shoot', 300)).toBe('timeout');
+  a.send('game:settled', snapshot(1));
+  expect(await b.next('game:settled')).toMatchObject({ rules: { current: 1 } });
+  b.send('game:shoot', shot);
+  expect(await a.next('game:shoot')).toEqual(shot);
 
-  // a third player can't get in
-  const c = await client();
-  expect(await call(c, 'room:join', { code, name: 'Cy' })).toMatchObject({ ok: false });
-  expect(await call(c, 'room:resume', { code, token: 'nope' })).toMatchObject({ ok: false });
+  const third = await client(`/rooms/${created.code}`, { op: 'join', name: 'Cy' });
+  expect(await third.next('error')).toEqual({ error: 'That room is full' });
+  const thief = await client(`/rooms/${created.code}`, { op: 'resume', token: 'nope' });
+  expect(await thief.next('error')).toEqual({ error: 'Game not found' });
 
-  const left = next(a, 'room:opponentLeft');
-  b.close();
-  expect(await left).toMatchObject({ graceMs: RECONNECT_GRACE_MS });
-});
+  // B drops and comes back with its token; the shot in flight is discarded for both
+  b.ws.close();
+  expect(await a.next('room:opponentLeft')).toMatchObject({ graceMs: RECONNECT_GRACE_MS });
+  const b2 = await client(`/rooms/${created.code}`, { op: 'resume', token: joined.token });
+  expect(await b2.next('room:resumed')).toMatchObject({
+    ready: { seat: 1 },
+    snapshot: { rules: { current: 1 } },
+  });
+  expect(await a.next('room:opponentBack')).toBeUndefined();
+  expect(await a.next('room:resync')).toMatchObject({ ready: { seat: 0 } });
 
-test('origin allowlist also applies to websocket connections', async () => {
-  const strict = createGameServer({ origins: ['https://game.example'] });
-  await new Promise<void>((r) => strict.http.listen(0, r));
-  const base = `http://localhost:${(strict.http.address() as AddressInfo).port}`;
-  const attempt = (origin: string) =>
+  a.send('room:leave');
+  expect(await b2.next('room:closed')).toEqual({ reason: 'Your opponent left the game' });
+}, 30_000);
+
+test('only the allowed origin may connect', async () => {
+  const strict = await startWorker('https://game.example');
+  // Node's WebSocket (undici) accepts headers, so it can pose as a page on another site
+  type NodeWebSocket = new (url: string, init: { headers: Record<string, string> }) => WebSocket;
+  const up = (origin: string) =>
     new Promise<string>((resolve) => {
-      const s = connect(base, {
-        transports: ['websocket'],
-        forceNew: true,
-        reconnection: false,
-        extraHeaders: { origin },
+      const ws = new (WebSocket as unknown as NodeWebSocket)(`${strict.url}/rooms/new`, {
+        headers: { origin },
       });
-      s.on('connect', () => (s.close(), resolve('connected')));
-      s.on('connect_error', () => (s.close(), resolve('refused')));
+      ws.onopen = () => (ws.close(), resolve('connected'));
+      ws.onerror = () => resolve('refused');
     });
-  expect(await attempt('https://evil.example')).toBe('refused');
-  expect(await attempt('https://game.example')).toBe('connected');
-  strict.close();
-});
+  expect(await up('https://evil.example')).toBe('refused');
+  expect(await up('https://game.example')).toBe('connected');
+  await strict.worker.stop();
+}, 60_000);

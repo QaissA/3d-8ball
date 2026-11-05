@@ -107,15 +107,20 @@ Order: **A → B → C → D → E**. A and B are self-contained UI work you can
 
 ### Layout
 ```
-server/
-  main.ts      # entry: PORT, ALLOWED_ORIGINS; run with  (Node >= 22.18 runs .ts directly)
-  server.ts    # http + socket.io: validation, rate limits, turn checks, relay
-  rooms.ts     # room store (in-memory Map), codes, seats, tokens, expiry; no sockets
+wrangler.jsonc   # Cloudflare Worker + Durable Object config, ALLOWED_ORIGINS
+server/          # Cloudflare Worker (moved off Socket.IO/Node: free hosting without a card)
+  index.ts       # worker: /healthz, origin check, per-IP limit, routes /rooms/new|<CODE> to a room
+  RoomObject.ts  # Durable Object, one per room: hibernating websockets, storage, expiry alarm
+  rooms.ts       # pure room rules: codes, seats, tokens, turns, expiry
 src/net/
-  protocol.ts  # message types + validators, shared by client and server
-  OnlineGame.ts# client session: create/join/resume, queue, reconciliation
-tests/server/server.test.ts, tests/net/online.test.ts
+  protocol.ts    # message types + validators, shared by client and server
+  OnlineGame.ts  # client session over plain WebSocket: create/join/resume, queue, reconciliation
+tests/server/server.test.ts, tests/net/online.test.ts  # run against the real worker (wrangler)
 ```
+
+Wire format: JSON `{ type, data }` over one websocket per player. The first message is
+`hello { op: 'create' | 'join' | 'resume', name?, token? }`; the server answers `room:created`,
+`room:joined`, `room:resumed` or `error`. The `room:*` / `game:*` names below are the `type`s.
 
 ### Protocol (all messages validated server-side; reject anything else)
 | Client → server | Payload | Notes |
@@ -139,16 +144,16 @@ Server → client: `room:ready` (both seated, with the rack **seed** and who bre
 - [x] Reconnect tokens: random 128-bit per seat, only ever sent to that seat.
 - [x] Health endpoint `/healthz`. Log room counts only, not names.
 - [x] Tests: create/join/full/expired, wrong-seat shot dropped, invalid payloads rejected, resume with a bad token rejected.
-- [ ] **Deploy (not done: needs your hosting account).** See "Deploying" below.
+- [x] Deploy: Cloudflare Workers, https://3d-8ball-server.shared-text-3d.workers.dev. See "Deploying" below.
 
-**Done when:** two `socket.io-client` scripts can create and join a room and pass a full shot cycle against the deployed server. *(Passes against a local server in `tests/server` and `tests/net`; not yet deployed.)*
+**Done when:** two clients can create and join a room and pass a full shot cycle against the deployed server. *(Full shot cycles pass against the real worker locally in `tests/server` and `tests/net`; create + join checked against the deployed worker.)*
 
 ---
 
 ## Phase E: Online client (3–4 days)
 
 ### Tasks
-- [x] `src/net/OnlineSession.ts`: connects with `socket.io-client`, exposes `create/join/resume`, typed events from `server/src/protocol.ts`, and connection status.
+- [x] `src/net/OnlineGame.ts` (plain WebSocket; was `socket.io-client` before the Cloudflare move): `create/join/resume`, typed messages from `src/net/protocol.ts`, connection status, reconnect loop.
 - [x] Menu **Online** mode (in the mode picker, no separate screen): name, **Create room** (big selectable code, no copy button + "Waiting for opponent…"), **Join** (code input, uppercase, 5 characters). Show errors inline. Cancel leaves the room.
 - [x] Start: both clients build the rack from the server's **seed** (`Game` already takes `makeSeed`; `newRack` must accept a given seed). The seat that breaks comes from the server.
 - [x] Local seat → `LocalController` plus outgoing `aim`/`place` (throttled) and `shoot`. Remote seat → `RemoteController`, which animates the opponent's aim and cue from `game:aim` and plays `game:shoot` through the same `input.onRelease()` path the AI uses.
@@ -165,15 +170,15 @@ Server → client: `room:ready` (both seated, with the rack **seed** and who bre
 
 ### Deploying
 
-1. **Server** (any Node host with websockets: Fly.io, Railway, Render). Start command `npm ci && npm run server`, Node >= 22.18.
-   Env: `NODE_ENV=production`, `ALLOWED_ORIGINS=https://<your game URL>` (comma-separated; the server refuses to start without it in production). `PORT` is usually set by the host.
-   Health check: `GET /healthz`. Rooms live in memory: run **one** instance; a restart ends running games.
-2. **Client**: build with `VITE_SERVER_URL=https://<your server URL> npm run build` and deploy `dist/` as before.
-   Without it, the client looks for the server on port 3001 of the page's own host (what `npm run dev` + `npm run server` use locally).
+1. **Server** (Cloudflare Workers free plan, no card): `npm run server:deploy` (`wrangler deploy`; log in once with `npx wrangler login`).
+   Allowed sites are `ALLOWED_ORIGINS` in `wrangler.jsonc` (comma-separated). Health check: `GET /healthz`.
+   Rooms live in Durable Object storage, so they survive the object sleeping; a room closes 60 s after a player drops for good.
+2. **Client** (Vercel): `VITE_SERVER_URL=https://3d-8ball-server.shared-text-3d.workers.dev` is set in the Vercel project
+   (Production); every push to `main` rebuilds with it. Without it, the client looks for the server on port 3001 of the page's own host.
 
 ### Running it locally
 
-`npm run server` (port 3001) and `npm run dev`, then open the game in two browser windows: Online → Create room in one, Join with the code in the other.
+`npm run server` (the worker under `wrangler dev`, port 3001, any origin allowed) and `npm run dev`, then open the game in two browser windows: Online → Create room in one, Join with the code in the other.
 
 ---
 

@@ -1,7 +1,7 @@
-import { io, type Socket } from 'socket.io-client';
 import type { Game } from '../game/GameStateMachine';
 import type { ShotInput } from '../input/ShotInput';
 import {
+  cleanCode,
   isAim,
   isPlace,
   isShot,
@@ -25,24 +25,33 @@ export interface OnlineHooks {
 }
 
 const SEND_EVERY_MS = 100; // aim/placement updates to the opponent, ~10 Hz
-const ACK_MS = 8000;
-// free hosting (Render) sleeps when idle and takes up to a minute to wake; socket.io keeps retrying
-const CONNECT_MS = 90_000;
+const CONNECT_MS = 15_000;
+const RETRY_MS = 2_000; // between reconnect attempts
+const RETRY_FOR_MS = 60_000; // the server keeps a dropped seat this long
 const POS_EPS = 1e-6; // m: tables closer than this count as identical
 
 type Queued = { kind: 'shoot'; m: ShotMsg } | { kind: 'settled'; m: Snapshot };
+interface Wire {
+  type?: unknown;
+  data?: unknown;
+}
+
+/** An error the server sent on purpose (bad code, full room): retrying won't help. */
+class ServerRefused extends Error {}
 
 /**
- * One online game through the room server. The shooter's client is the authority: after the balls
- * stop it sends the table, and the other client snaps to it. Opponent shots and results are queued
- * and played in order, once the previous shot has finished rolling locally.
+ * One online game through the room server (plain websockets; one Durable Object per room).
+ * The shooter's client is the authority: after the balls stop it sends the table, and the other
+ * client snaps to it. Opponent shots and results are queued and played in order, once the previous
+ * shot has finished rolling locally.
  */
 export class OnlineGame {
   seat: Seat | null = null;
   inRoom = false;
   /** Times our table disagreed with the opponent's result (cross-browser float drift). */
   divergences = 0;
-  private socket: Socket;
+  private base: string;
+  private ws: WebSocket | null = null;
   private code = '';
   private token = '';
   private queue: Queued[] = [];
@@ -50,6 +59,7 @@ export class OnlineGame {
   private myShotPending = false; // our shot: send the result when it stops
   private lastSent = '';
   private lastSentAt = 0;
+  private reconnecting = false;
 
   constructor(
     url: string,
@@ -57,91 +67,41 @@ export class OnlineGame {
     private input: ShotInput,
     private hooks: OnlineHooks,
   ) {
-    this.socket = io(url, { autoConnect: false, transports: ['websocket'] });
-    const s = this.socket;
-    s.on('room:ready', (r: ReadyMsg) => {
-      this.reset();
-      this.seat = r.seat;
-      this.inRoom = true;
-      hooks.onStatus(null);
-      hooks.onReady(r);
-    });
-    s.on('game:aim', (m: unknown) => {
-      if (!isAim(m) || !this.opponentLive() || game.phase !== 'aiming') return;
-      input.angle = m.angle;
-      input.power = m.power;
-      input.side = m.side;
-      input.top = m.top;
-    });
-    s.on('game:place', (m: unknown) => {
-      if (isPlace(m) && this.opponentLive() && game.phase === 'ballInHand')
-        game.moveCueBall(m.x, m.z);
-    });
-    s.on('game:shoot', (m: unknown) => isShot(m) && this.queue.push({ kind: 'shoot', m }));
-    s.on('game:settled', (m: unknown) => isSnapshot(m) && this.queue.push({ kind: 'settled', m }));
-    s.on('room:resync', (r: ResumeMsg) => this.resume(r));
-    s.on('room:opponentLeft', () =>
-      hooks.onStatus('Opponent disconnected. Waiting for them to come back…'),
-    );
-    s.on('room:opponentBack', () => hooks.onStatus(null));
-    s.on('room:closed', (m: { reason?: unknown }) => {
-      this.leaveRoom();
-      hooks.onClosed(typeof m?.reason === 'string' ? m.reason : 'The game ended');
-    });
-    s.on('disconnect', (reason) => {
-      if (!this.inRoom) return;
-      if (reason === 'io server disconnect' || reason === 'io client disconnect') {
-        this.leaveRoom();
-        hooks.onClosed('Disconnected from the server');
-      } else hooks.onStatus('Connection lost. Reconnecting…');
-    });
-    s.on('connect', () => {
-      if (!this.inRoom || !this.token) return; // first connect: nothing to resume
-      void s
-        .timeout(ACK_MS)
-        .emitWithAck('room:resume', { code: this.code, token: this.token })
-        .then((a: { ok: boolean; error?: string } & Partial<ResumeMsg>) => {
-          if (!a.ok || !a.ready) throw new Error(a.error);
-          hooks.onStatus(null);
-          this.resume(a as ResumeMsg);
-        })
-        .catch(() => {
-          this.leaveRoom();
-          hooks.onClosed('Could not rejoin the game');
-        });
-    });
+    this.base = url.replace(/^http/, 'ws').replace(/\/$/, '');
   }
 
   /** Create a room; resolves with its code once the server has it. */
   async create(name: string): Promise<string> {
-    const a = await this.request('room:create', { name });
-    this.code = a.code as string;
-    this.token = a.token as string;
+    const d = await this.open('/rooms/new', { op: 'create', name }, 'room:created');
+    this.code = d.code as string;
+    this.token = d.token as string;
     return this.code;
   }
 
   async join(code: string, name: string): Promise<void> {
-    const a = await this.request('room:join', { code, name });
-    this.code = code.trim().toUpperCase();
-    this.token = a.token as string;
+    const c = cleanCode(code);
+    if (!c) throw new Error('Room codes are 5 letters or digits');
+    const d = await this.open(`/rooms/${c}`, { op: 'join', name }, 'room:joined');
+    this.code = c;
+    this.token = d.token as string;
   }
 
   /** New game in the same room (breaks alternate). */
   rematch(): void {
-    if (this.inRoom) this.socket.emit('game:rematch');
+    if (this.inRoom) this.send('game:rematch');
   }
 
   leave(): void {
-    if (this.socket.connected) this.socket.emit('room:leave');
+    this.send('room:leave');
     this.leaveRoom();
-    this.socket.disconnect();
+    this.closeSocket();
   }
 
   /** Whether the local player may aim, place and shoot right now. */
   get myTurn(): boolean {
     return (
       this.inRoom &&
-      this.socket.connected &&
+      this.ws?.readyState === WebSocket.OPEN &&
       this.seat === this.game.rules.current &&
       !this.awaitingSettle &&
       this.queue.length === 0
@@ -159,7 +119,7 @@ export class OnlineGame {
       top: input.top,
       cue: [b.x, b.z],
     };
-    this.socket.emit('game:shoot', msg);
+    this.send('game:shoot', msg);
     this.myShotPending = true;
   }
 
@@ -170,7 +130,7 @@ export class OnlineGame {
     const idle = game.phase !== 'rolling' && input.phase !== 'striking';
     if (this.myShotPending && idle) {
       this.myShotPending = false;
-      this.socket.emit('game:settled', game.snapshot());
+      this.send('game:settled', game.snapshot());
     }
     while (idle && this.queue.length) {
       const e = this.queue.shift()!;
@@ -183,21 +143,160 @@ export class OnlineGame {
       break; // let it roll; the next item waits for it to stop
     }
     if (!this.myTurn || now - this.lastSentAt < SEND_EVERY_MS) return;
-    let event: string;
+    let type: string;
     let msg: object;
     if (game.phase === 'ballInHand') {
-      event = 'game:place';
+      type = 'game:place';
       msg = { x: game.cueBall.x, z: game.cueBall.z };
     } else if (game.phase === 'aiming' && input.phase !== 'striking') {
-      event = 'game:aim';
+      type = 'game:aim';
       msg = { angle: input.angle, power: input.power, side: input.side, top: input.top };
     } else return;
-    const key = event + JSON.stringify(msg);
+    const key = type + JSON.stringify(msg);
     if (key === this.lastSent) return;
     this.lastSent = key;
     this.lastSentAt = now;
-    this.socket.emit(event, msg);
+    this.send(type, msg);
   }
+
+  // ---- connection ----
+
+  /**
+   * Open a socket to a room, send the hello, and resolve with the server's answer of type `expect`.
+   * Later messages go to handle(); an unexpected close starts reconnecting.
+   */
+  private open(path: string, hello: object, expect: string): Promise<Record<string, unknown>> {
+    this.closeSocket();
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(this.base + path);
+      this.ws = ws;
+      let pending = true;
+      const finish = (err: Error | null, data?: Record<string, unknown>) => {
+        if (!pending) return;
+        pending = false;
+        clearTimeout(timer);
+        if (err) reject(err);
+        else resolve(data ?? {});
+      };
+      const timer = setTimeout(() => {
+        finish(new Error('Could not reach the game server'));
+        ws.close();
+      }, CONNECT_MS);
+      ws.onopen = () => ws.send(JSON.stringify({ type: 'hello', data: hello }));
+      ws.onmessage = (e) => {
+        let m: Wire;
+        try {
+          m = JSON.parse(String(e.data));
+        } catch {
+          return;
+        }
+        const data = (typeof m.data === 'object' && m.data !== null ? m.data : {}) as Record<
+          string,
+          unknown
+        >;
+        if (pending && m.type === expect) return finish(null, data);
+        if (pending && m.type === 'error')
+          return finish(new ServerRefused(String(data.error ?? 'Something went wrong')));
+        this.handle(m.type, m.data);
+      };
+      ws.onclose = () => {
+        if (pending) finish(new Error('Could not reach the game server'));
+        else if (ws === this.ws) this.dropped();
+      };
+    });
+  }
+
+  private handle(type: unknown, d: unknown): void {
+    const { game, input, hooks } = this;
+    switch (type) {
+      case 'room:ready': {
+        const r = d as ReadyMsg;
+        this.reset();
+        this.seat = r.seat;
+        this.inRoom = true;
+        hooks.onStatus(null);
+        hooks.onReady(r);
+        return;
+      }
+      case 'game:aim':
+        if (!isAim(d) || !this.opponentLive() || game.phase !== 'aiming') return;
+        input.angle = d.angle;
+        input.power = d.power;
+        input.side = d.side;
+        input.top = d.top;
+        return;
+      case 'game:place':
+        if (isPlace(d) && this.opponentLive() && game.phase === 'ballInHand')
+          game.moveCueBall(d.x, d.z);
+        return;
+      case 'game:shoot':
+        if (isShot(d)) this.queue.push({ kind: 'shoot', m: d });
+        return;
+      case 'game:settled':
+        if (isSnapshot(d)) this.queue.push({ kind: 'settled', m: d });
+        return;
+      case 'room:resync':
+        this.resume(d as ResumeMsg);
+        return;
+      case 'room:opponentLeft':
+        hooks.onStatus('Opponent disconnected. Waiting for them to come back…');
+        return;
+      case 'room:opponentBack':
+        hooks.onStatus(null);
+        return;
+      case 'room:closed': {
+        const reason = (d as { reason?: unknown } | null)?.reason;
+        this.leaveRoom();
+        this.closeSocket();
+        hooks.onClosed(typeof reason === 'string' ? reason : 'The game ended');
+        return;
+      }
+    }
+  }
+
+  /** The socket closed on its own: rejoin the room with our token while the server holds the seat. */
+  private dropped(): void {
+    if (!this.token) return;
+    if (!this.inRoom) {
+      // still waiting for an opponent: the server drops a room whose host disconnects
+      this.code = this.token = '';
+      this.hooks.onClosed('Lost the connection to the server. Create the room again.');
+      return;
+    }
+    if (this.reconnecting) return;
+    this.reconnecting = true;
+    this.hooks.onStatus('Connection lost. Reconnecting…');
+    const giveUp = Date.now() + RETRY_FOR_MS;
+    const attempt = () => {
+      if (!this.inRoom) return void (this.reconnecting = false); // left meanwhile
+      this.open(`/rooms/${this.code}`, { op: 'resume', token: this.token }, 'room:resumed')
+        .then((d) => {
+          this.reconnecting = false;
+          this.hooks.onStatus(null);
+          this.resume(d as unknown as ResumeMsg);
+        })
+        .catch((err: unknown) => {
+          if (!(err instanceof ServerRefused) && Date.now() < giveUp)
+            return void setTimeout(attempt, RETRY_MS);
+          this.reconnecting = false;
+          this.leaveRoom();
+          this.hooks.onClosed('Could not rejoin the game');
+        });
+    };
+    setTimeout(attempt, RETRY_MS);
+  }
+
+  private send(type: string, data?: unknown): void {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type, data }));
+  }
+
+  private closeSocket(): void {
+    const ws = this.ws;
+    this.ws = null; // so its close event isn't taken for a dropped connection
+    ws?.close();
+  }
+
+  // ---- game sync ----
 
   private playOpponentShot(m: ShotMsg): void {
     const { game, input } = this;
@@ -248,30 +347,6 @@ export class OnlineGame {
       this.game.restore(r.snapshot);
       this.hooks.afterRestore();
     }
-  }
-
-  private async request(event: string, msg: object): Promise<Record<string, unknown>> {
-    if (!this.socket.connected) {
-      this.socket.connect();
-      await new Promise<void>((resolve, reject) => {
-        const t = setTimeout(
-          () => reject(new Error('Could not reach the game server')),
-          CONNECT_MS,
-        );
-        this.socket.once('connect', () => {
-          clearTimeout(t);
-          resolve();
-        });
-      });
-    }
-    let a: { ok: boolean; error?: string };
-    try {
-      a = await this.socket.timeout(ACK_MS).emitWithAck(event, msg);
-    } catch {
-      throw new Error('The game server did not answer');
-    }
-    if (!a.ok) throw new Error(a.error ?? 'Something went wrong');
-    return a as Record<string, unknown>;
   }
 
   private opponentLive(): boolean {

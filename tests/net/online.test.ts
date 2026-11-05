@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, expect, test } from 'vitest';
-import type { AddressInfo } from 'node:net';
-import { createGameServer } from '../../server/server.ts';
+import { startWorker } from '../server/worker';
 import { Game } from '../../src/game/GameStateMachine';
 import type { ShotInput } from '../../src/input/ShotInput';
 import { OnlineGame } from '../../src/net/OnlineGame';
@@ -10,14 +9,13 @@ import { PHYSICS } from '../../src/config/physics';
 // Two full clients (game + online session) against the real server, with a stand-in for the
 // mouse/keyboard input and the render loop.
 
-let server: ReturnType<typeof createGameServer>;
+let server: Awaited<ReturnType<typeof startWorker>>;
 let url = '';
 beforeAll(async () => {
-  server = createGameServer({ origins: [] });
-  await new Promise<void>((r) => server.http.listen(0, r));
-  url = `http://localhost:${(server.http.address() as AddressInfo).port}`;
-});
-afterAll(() => server.close());
+  server = await startWorker();
+  url = server.url;
+}, 60_000);
+afterAll(() => server?.worker.stop());
 
 interface Player {
   game: Game;
@@ -59,7 +57,7 @@ function frame(p: Player, now: number) {
   }
 }
 
-async function runUntil(players: Player[], done: () => boolean, ms = 10_000) {
+async function runUntil(players: Player[], done: () => boolean, ms = 20_000) {
   const start = Date.now();
   let now = 0;
   while (!done()) {
@@ -139,4 +137,4 @@ test('online: both clients play the same game shot by shot', async () => {
 
   a.online.leave();
   b.online.leave();
-}, 30_000);
+}, 60_000);

@@ -3,25 +3,25 @@
   "version": "0.0.1",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && tsc --noEmit -p server && vite build",
     "preview": "vite preview",
     "test": "vitest",
     "lint": "eslint src tests server",
     "format": "prettier --write .",
     "assets:optimize": "node scripts/prune-table.mjs assets-src/pool_table_-_billiard_table_with_cues_and_balls.glb assets-src/table.pruned.glb && gltf-transform optimize assets-src/table.pruned.glb public/models/table.glb --compress meshopt --texture-compress webp --texture-size 2048",
-    "server": "node server/main.ts"
+    "server": "wrangler dev --port 3001 --var ALLOWED_ORIGINS:",
+    "server:deploy": "wrangler deploy"
   },
   "type": "module",
   "dependencies": {
     "howler": "2.2.4",
     "lil-gui": "0.21.0",
     "postprocessing": "6.39.6",
-    "socket.io": "4.8.1",
-    "socket.io-client": "4.8.1",
     "three": "0.187.0",
     "zustand": "5.0.16"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "5.20261021.1",
     "@eslint/js": "10.0.1",
     "@gltf-transform/cli": "4.5.1",
     "@gltf-transform/core": "4.5.1",
@@ -35,10 +35,8 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.1",
     "vite": "8.3.6",
-    "vitest": "5.1.0"
+    "vitest": "5.1.0",
+    "wrangler": "4.151.3"
   },
-  "private": true,
-  "engines": {
-    "node": ">=22.18"
-  }
+  "private": true
 }

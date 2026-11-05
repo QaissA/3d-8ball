@@ -1,0 +1,16 @@
+// Cloudflare Worker: the online room server (the game itself is on Vercel).
+// Deploy: npm run server:deploy   Local: npm run server (port 3001)
+{
+  "name": "3d-8ball-server",
+  "main": "server/index.ts",
+  "compatibility_date": "2026-10-01",
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "RoomObject" }],
+  },
+  // SQLite-backed objects are what the free plan offers
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomObject"] }],
+  "vars": {
+    // only the game's site may connect; local dev overrides this to allow any origin
+    "ALLOWED_ORIGINS": "https://3d-8ball.vercel.app",
+  },
+}
