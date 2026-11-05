@@ -1,0 +1,37 @@
+{
+  "name": "pool-8ball",
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "lint": "eslint src tests",
+    "format": "prettier --write .",
+    "assets:optimize": "node scripts/prune-table.mjs assets-src/pool_table_-_billiard_table_with_cues_and_balls.glb assets-src/table.pruned.glb && gltf-transform optimize assets-src/table.pruned.glb public/models/table.glb --compress meshopt --texture-compress webp --texture-size 2048"
+  },
+  "type": "module",
+  "dependencies": {
+    "howler": "2.2.4",
+    "lil-gui": "0.21.0",
+    "postprocessing": "6.39.6",
+    "three": "0.187.0",
+    "zustand": "5.0.16"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@gltf-transform/cli": "4.5.1",
+    "@gltf-transform/core": "4.5.1",
+    "@gltf-transform/extensions": "4.5.1",
+    "@gltf-transform/functions": "4.5.1",
+    "@types/howler": "2.2.13",
+    "@types/three": "0.187.0",
+    "eslint": "10.14.0",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vite": "8.3.6",
+    "vitest": "5.1.0"
+  },
+  "private": true
+}
