@@ -1,0 +1,106 @@
+.menu-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #000a;
+  backdrop-filter: blur(3px);
+  z-index: 10;
+  padding: 16px;
+}
+.menu-overlay[hidden] {
+  display: none;
+}
+.menu {
+  width: min(360px, 100%);
+  padding: 24px;
+  border-radius: 12px;
+  background: #1b1f1d;
+  border: 1px solid #fff2;
+  box-shadow: 0 10px 40px #000a;
+  color: #eee;
+  font:
+    15px/1.5 system-ui,
+    sans-serif;
+}
+.menu section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.menu h1,
+.menu h2 {
+  margin: 0 0 8px;
+  text-align: center;
+}
+.menu h1 {
+  font-size: 30px;
+  letter-spacing: 0.5px;
+}
+.menu label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #bbb;
+  font-size: 13px;
+}
+.menu label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: #eee;
+  font-size: 15px;
+}
+.menu input:not([type]),
+.menu select {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #fff3;
+  background: #0006;
+  color: #eee;
+  font: inherit;
+}
+.menu button {
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #fff3;
+  background: #fff1;
+  color: #eee;
+  font: inherit;
+  cursor: pointer;
+}
+.menu button:hover,
+.menu button:focus-visible {
+  background: #fff2;
+}
+.menu button.primary {
+  background: #ffc107;
+  border-color: #ffc107;
+  color: #111;
+  font-weight: 600;
+}
+.menu a {
+  color: #ffd54f;
+}
+.menu p {
+  margin: 0;
+  color: #ccc;
+  font-size: 14px;
+}
+.pause-button {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid #fff3;
+  background: #0009;
+  color: #eee;
+  font-size: 14px;
+  cursor: pointer;
+}
+.menu section[hidden] {
+  display: none;
+}

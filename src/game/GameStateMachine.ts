@@ -7,6 +7,7 @@ import {
   DEFAULT_OPTIONS,
   judge,
   newGame,
+  type Outcome,
   type Player,
   type RulesState,
 } from '../rules/EightBallRules';
@@ -31,6 +32,9 @@ export class Game {
   readonly options = { ...DEFAULT_OPTIONS };
   /** Called whenever a new World is created, so the renderer can resync. */
   onNewWorld: (w: World) => void = () => {};
+  /** Called after each shot is judged (sound, banners). */
+  onResolve: (o: Outcome) => void = () => {};
+  names: [string, string] = [...PLAYER_NAMES];
   private recorder = new ShotRecorder();
   private breaker: Player = 0;
 
@@ -54,7 +58,7 @@ export class Game {
     this.rules = newGame(breaker);
     this.phase = 'ballInHand';
     this.inHand = 'kitchen';
-    this.message = `${PLAYER_NAMES[breaker]} to break: place the cue ball behind the line`;
+    this.message = `${this.names[breaker]} to break: place the cue ball behind the line`;
     this.onNewWorld(this.world);
   }
 
@@ -88,7 +92,7 @@ export class Game {
   placeCueBall(): boolean {
     if (this.phase !== 'ballInHand' || !this.canPlace(this.cueBall.x, this.cueBall.z)) return false;
     this.phase = 'aiming';
-    if (this.rules.isBreak) this.message = `${PLAYER_NAMES[this.rules.current]} to break`;
+    if (this.rules.isBreak) this.message = `${this.names[this.rules.current]} to break`;
     return true;
   }
 
@@ -106,11 +110,12 @@ export class Game {
   }
 
   private resolve(): void {
-    const shooter = PLAYER_NAMES[this.rules.current];
+    const shooter = this.names[this.rules.current];
     const o = judge(this.rules, this.recorder.result, this.options);
+    this.onResolve(o);
     if (o.rerack) {
       this.newRack(o.state.current);
-      this.message = `Illegal break by ${shooter}. ${PLAYER_NAMES[o.state.current]} re-breaks`;
+      this.message = `Illegal break by ${shooter}. ${this.names[o.state.current]} re-breaks`;
       return;
     }
     this.rules = o.state;
@@ -123,10 +128,10 @@ export class Game {
 
     if (this.rules.winner !== null) {
       this.phase = 'gameOver';
-      this.message = `${PLAYER_NAMES[this.rules.winner]} wins! (${shooter}: ${o.note})`;
+      this.message = `${this.names[this.rules.winner]} wins! (${shooter}: ${o.note})`;
       return;
     }
-    const next = PLAYER_NAMES[this.rules.current];
+    const next = this.names[this.rules.current];
     const parts = [
       o.foul && `Foul by ${shooter}: ${o.foul}.`,
       o.note && `${shooter}: ${o.note}.`,

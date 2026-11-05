@@ -12,3 +12,7 @@ export function pointerOnTable(e: PointerEvent, camera: THREE.Camera): THREE.Vec
   raycaster.setFromCamera(ndc, camera);
   return raycaster.ray.intersectPlane(plane, new THREE.Vector3());
 }
+
+/** Keyboard shortcuts should ignore keys typed into form fields and the debug panel. */
+export const isFormTarget = (e: KeyboardEvent) =>
+  !!(e.target as HTMLElement).closest?.('input, select, textarea, button, .lil-gui');

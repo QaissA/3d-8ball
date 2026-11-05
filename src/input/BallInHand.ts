@@ -1,12 +1,17 @@
 import type * as THREE from 'three';
 import type { Game } from '../game/GameStateMachine';
-import { pointerOnTable } from './pointer';
+import { isFormTarget, pointerOnTable } from './pointer';
 
 /**
  * Ball in hand: the cue ball follows the mouse (or a dragging finger); click / lift to place.
  * Keyboard: arrows move it (Shift = fine), Enter places.
  */
-export function setupBallInHand(canvas: HTMLCanvasElement, camera: THREE.Camera, game: Game) {
+export function setupBallInHand(
+  canvas: HTMLCanvasElement,
+  camera: THREE.Camera,
+  game: Game,
+  enabled: () => boolean, // false while a menu is open
+) {
   const active = () => game.phase === 'ballInHand';
   const follow = (e: PointerEvent) => {
     if (!active() || (e.pointerType !== 'mouse' && e.buttons === 0)) return;
@@ -19,7 +24,7 @@ export function setupBallInHand(canvas: HTMLCanvasElement, camera: THREE.Camera,
     if (active() && (e.pointerType !== 'mouse' || e.button === 0)) game.placeCueBall();
   });
   window.addEventListener('keydown', (e) => {
-    if (!active() || (e.target as HTMLElement).closest?.('.lil-gui')) return;
+    if (!active() || !enabled() || isFormTarget(e)) return;
     const step = e.shiftKey ? 0.001 : 0.005;
     const b = game.cueBall;
     const moves: Record<string, [number, number]> = {

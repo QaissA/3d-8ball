@@ -108,8 +108,90 @@
 .game-hud .player.winner {
   border-color: #4caf50;
 }
-.game-hud .group {
+.game-hud .player {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.game-hud .balls {
+  display: flex;
+  gap: 3px;
+}
+.game-hud .open {
   color: #bbb;
+}
+.ball-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font:
+    600 9px/1 system-ui,
+    sans-serif;
+  color: #111;
+  text-shadow: none;
+  background: radial-gradient(circle, #f4f1e8 0 36%, var(--c) 38%);
+  box-shadow: inset -2px -2px 4px #0006;
+}
+.ball-icon.stripe {
+  background:
+    radial-gradient(circle, #f4f1e8 0 36%, transparent 38%),
+    linear-gradient(#f4f1e8 0 22%, var(--c) 22% 78%, #f4f1e8 78%);
+}
+.banner {
+  position: fixed;
+  top: 38%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font:
+    700 clamp(28px, 6vw, 52px) / 1.1 system-ui,
+    sans-serif;
+  color: #fff;
+  text-shadow: 0 2px 12px #000;
+  pointer-events: none;
+  opacity: 0;
+  white-space: nowrap;
+}
+.banner.show {
+  animation: banner 1.8s ease-out forwards;
+}
+.banner.foul {
+  color: #ff8a80;
+}
+.banner.win {
+  color: #ffd54f;
+  animation-duration: 4s;
+}
+@keyframes banner {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -40%) scale(0.9);
+  }
+  12%,
+  70% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -55%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .banner.show {
+    animation-name: banner-fade;
+  }
+  @keyframes banner-fade {
+    0%,
+    100% {
+      opacity: 0;
+    }
+    10%,
+    80% {
+      opacity: 1;
+    }
+  }
 }
 .game-hud .msg {
   margin-top: 6px;

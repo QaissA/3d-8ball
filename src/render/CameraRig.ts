@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { isFormTarget } from '../input/pointer';
 
 export type CameraMode = 'behind' | 'overhead' | 'free';
 const MODES: CameraMode[] = ['behind', 'overhead', 'free'];
 const DAMPING = 6; // 1/s, higher = snappier
+const SHAKE_DECAY = 8; // 1/s
 
 /**
  * 'C' cycles: behind the cue (follows aim, default) → overhead → free orbit (right-drag, wheel).
@@ -13,21 +15,28 @@ export class CameraRig {
   mode: CameraMode = 'behind';
   private wantPos = new THREE.Vector3(-2.1, 1.2, 1.3);
   private wantTarget = new THREE.Vector3();
+  private pos = new THREE.Vector3().copy(this.wantPos);
   private target = new THREE.Vector3();
+  private shakeAmp = 0;
 
   constructor(
     private camera: THREE.PerspectiveCamera,
     private controls: OrbitControls,
   ) {
-    camera.position.copy(this.wantPos);
+    camera.position.copy(this.pos);
     controls.enabled = false;
     window.addEventListener('keydown', (e) => {
-      if (e.key !== 'c' && e.key !== 'C') return;
-      if ((e.target as HTMLElement).closest?.('.lil-gui')) return;
+      if ((e.key !== 'c' && e.key !== 'C') || isFormTarget(e)) return;
       this.mode = MODES[(MODES.indexOf(this.mode) + 1) % MODES.length]!;
       controls.enabled = this.mode === 'free';
       if (this.mode === 'free') controls.target.copy(this.target);
+      else this.pos.copy(camera.position);
     });
+  }
+
+  /** Brief camera shake, e.g. on a hard break (amplitude in metres). */
+  shake(amount: number): void {
+    this.shakeAmp = Math.max(this.shakeAmp, amount);
   }
 
   update(dt: number, cueX: number, cueZ: number, angle: number, aiming: boolean): void {
@@ -49,8 +58,20 @@ export class CameraRig {
       this.wantTarget.set(cueX + dx * 0.6, 0, cueZ + dz * 0.6);
     } // behind while balls roll: hold the last pose
     const k = 1 - Math.exp(-DAMPING * dt);
-    this.camera.position.lerp(this.wantPos, k);
+    this.pos.lerp(this.wantPos, k);
     this.target.lerp(this.wantTarget, k);
+    this.camera.position.copy(this.pos);
+    if (this.shakeAmp > 1e-4) {
+      const a = this.shakeAmp;
+      this.camera.position.add(
+        new THREE.Vector3(
+          Math.random() - 0.5,
+          Math.random() - 0.5,
+          Math.random() - 0.5,
+        ).multiplyScalar(2 * a),
+      );
+      this.shakeAmp *= Math.exp(-SHAKE_DECAY * dt);
+    }
     this.camera.lookAt(this.target);
   }
 }

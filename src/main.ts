@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { createRenderer } from './render/Renderer';
+import { applyQuality, createRenderer } from './render/Renderer';
+import { AudioManager } from './audio/AudioManager';
+import { PocketDrop } from './render/PocketDrop';
+import { createMenu } from './ui/Menu';
+import { loadSettings, saveSettings } from './ui/settings';
+import type { World } from './physics/World';
 import { createDebug } from './debug/DebugPanel';
 import { createPhysicsDebug } from './debug/PhysicsDebug';
 import { addLighting, loadTable } from './render/SceneBuilder';
@@ -52,15 +57,37 @@ for (let n = 0; n <= 15; n++) {
   scene.add(mesh);
 }
 
+const userSettings = loadSettings();
+const audio = new AudioManager();
+const drops = new PocketDrop();
 const game = new Game();
-const syncAll = () => {
-  for (const b of game.world.balls) syncBallMesh(meshes.get(b.id)!, b, 0);
-};
-game.onNewWorld = () => {
-  syncAll();
+
+/** Hook a (new) physics world up to sound, pocket animations and the break camera shake. */
+function attachWorld(w: World) {
+  drops.clear();
+  for (const b of w.balls) syncBallMesh(meshes.get(b.id)!, b, 0);
+  w.on((e) => {
+    if (e.type === 'cueHit') {
+      audio.strike(e.speed);
+      if (game.rules.isBreak && e.speed > 6) rig.shake(0.006 * (e.speed / 10));
+    } else if (e.type === 'ballBall') audio.ballBall(e.speed);
+    else if (e.type === 'ballCushion') audio.cushion(e.speed);
+    else if (e.type === 'pocketed') {
+      audio.pocket();
+      drops.start(e.ball, meshes.get(e.ball)!, e.pocket);
+    }
+  });
+}
+game.onNewWorld = (w) => {
+  attachWorld(w);
   input.angle = 0;
 };
-syncAll();
+game.onResolve = (o) => {
+  if (o.state.winner !== null) audio.win();
+  else if (o.foul) audio.foul();
+  gameHud.announce(o);
+};
+attachWorld(game.world);
 
 const input = new ShotInput(
   renderer.domElement,
@@ -68,9 +95,31 @@ const input = new ShotInput(
   () => game.cueBall,
   () => rig.mode,
 );
-setupBallInHand(renderer.domElement, camera, game);
 const hud = createShotHud(input);
 const gameHud = createGameHud(game);
+
+function applySettings() {
+  audio.setVolume(userSettings.volume);
+  input.sensitivity = userSettings.sensitivity;
+  applyQuality(renderer, scene, lamp, userSettings.quality);
+}
+applySettings();
+const menu = createMenu({
+  settings: userSettings,
+  onPlay(names) {
+    userSettings.names = names;
+    saveSettings(userSettings);
+    game.names = names;
+    game.newRack(0);
+  },
+  onNewGame: () => game.newGame(),
+  onSettingsChange() {
+    applySettings();
+    saveSettings(userSettings);
+  },
+  canPause: () => input.phase !== 'striking',
+});
+setupBallInHand(renderer.domElement, camera, game, () => !menu.isOpen());
 
 // ring under the cue ball while it's in hand: green = legal spot, red = not
 const handRing = new THREE.Mesh(
@@ -94,21 +143,26 @@ const physicsDebug = createPhysicsDebug();
 physicsDebug.visible = false;
 scene.add(physicsDebug);
 
-const settings = { timeScale: 1, aimGuide: true, newGame: () => game.newGame() };
-const { stats, gui } = createDebug();
-gui.add(settings, 'newGame').name('new game');
-const rulesFolder = gui.addFolder('Rules').close();
-rulesFolder.add(game.options, 'eightOnBreak', ['win', 'respot']).name('8 on the break');
-rulesFolder.add(game.options, 'scratchOnBreak', ['kitchen', 'anywhere']).name('break scratch');
-gui.add(settings, 'aimGuide').name('aim guide');
-gui.add(settings, 'timeScale', 0.05, 1, 0.01).name('slow-mo');
-gui.add(physicsDebug, 'visible').name('show cushions/pockets');
-const physicsFolder = gui.addFolder('Physics').close();
-for (const key of Object.keys(PHYSICS) as (keyof typeof PHYSICS)[]) physicsFolder.add(PHYSICS, key);
-const look = gui.addFolder('Look').close();
-look.add(renderer, 'toneMappingExposure', 0, 3, 0.01).name('exposure');
-look.add(scene, 'environmentIntensity', 0, 2, 0.01).name('env light');
-look.add(lamp, 'intensity', 0, 150, 1).name('lamp');
+// Debug panel + FPS meter: dev server, or add ?debug to the URL.
+const debug = { timeScale: 1 };
+let stats: { update(): void } | null = null;
+if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) {
+  const d = createDebug();
+  stats = d.stats;
+  const gui = d.gui.close();
+  const rulesFolder = gui.addFolder('Rules').close();
+  rulesFolder.add(game.options, 'eightOnBreak', ['win', 'respot']).name('8 on the break');
+  rulesFolder.add(game.options, 'scratchOnBreak', ['kitchen', 'anywhere']).name('break scratch');
+  gui.add(debug, 'timeScale', 0.05, 1, 0.01).name('slow-mo');
+  gui.add(physicsDebug, 'visible').name('show cushions/pockets');
+  const physicsFolder = gui.addFolder('Physics').close();
+  for (const key of Object.keys(PHYSICS) as (keyof typeof PHYSICS)[])
+    physicsFolder.add(PHYSICS, key);
+  const look = gui.addFolder('Look').close();
+  look.add(renderer, 'toneMappingExposure', 0, 3, 0.01).name('exposure');
+  look.add(scene, 'environmentIntensity', 0, 2, 0.01).name('env light');
+  look.add(lamp, 'intensity', 0, 150, 1).name('lamp');
+}
 
 // Fixed-step accumulator. shortcut: no render interpolation (240 Hz steps vs 60 Hz frames is
 // already smooth); add it if high-refresh displays show judder.
@@ -117,7 +171,8 @@ let last = performance.now();
 renderer.setAnimationLoop((now) => {
   const frameDt = Math.min((now - last) / 1000, 0.1);
   last = now;
-  acc += frameDt * settings.timeScale;
+  const paused = menu.isOpen();
+  if (!paused) acc += frameDt * debug.timeScale;
   const world = game.world;
   while (acc >= DT) {
     world.step();
@@ -125,6 +180,15 @@ renderer.setAnimationLoop((now) => {
     acc -= DT;
   }
   game.update();
+  drops.update(
+    paused ? 0 : frameDt,
+    (id) => world.balls.find((b) => b.id === id)?.state === 'pocketed',
+  );
+  audio.setRolling(
+    paused
+      ? 0
+      : world.balls.reduce((s, b) => s + (b.state === 'pocketed' ? 0 : Math.hypot(b.vx, b.vz)), 0),
+  );
 
   const cb = game.cueBall;
   const inHand = game.phase === 'ballInHand';
@@ -136,12 +200,12 @@ renderer.setAnimationLoop((now) => {
   );
 
   const aiming = game.phase === 'aiming';
-  input.enabled = aiming && input.phase !== 'striking';
+  input.enabled = aiming && !paused && input.phase !== 'striking';
   input.update(frameDt);
 
   let gap = pullGap();
   if (input.phase === 'striking') {
-    strikeT += frameDt / STRIKE_TIME;
+    if (!paused) strikeT += frameDt / STRIKE_TIME;
     gap = strikeFrom * (1 - Math.min(strikeT, 1));
     if (strikeT >= 1) {
       // power^1.5 gives finer control over soft shots
@@ -161,14 +225,14 @@ renderer.setAnimationLoop((now) => {
     cue.root.visible = showCue;
     cue.update(cb.x, cb.z, input.angle, input.side, input.top, gap);
   }
-  aimGuide.group.visible = settings.aimGuide && showCue && input.phase !== 'striking';
+  aimGuide.group.visible = userSettings.aimGuide && showCue && input.phase !== 'striking';
   if (aimGuide.group.visible) aimGuide.update(cb.x, cb.z, predictAim(world.balls, 0, input.angle));
 
   hud.update();
   gameHud.update();
   rig.update(frameDt, cb.x, cb.z, input.angle, aiming);
   renderer.render(scene, camera);
-  stats.update();
+  stats?.update();
 });
 
 // Dev-only handle for poking at the game from the browser console.

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { CameraMode } from '../render/CameraRig';
-import { pointerOnTable } from './pointer';
+import { isFormTarget, pointerOnTable } from './pointer';
 
 export type ShotPhase = 'aiming' | 'pulling' | 'striking';
 
@@ -26,6 +26,8 @@ export class ShotInput {
   phase: ShotPhase = 'aiming';
   /** False while balls are moving. */
   enabled = true;
+  /** Multiplier for behind-cue aim speed (settings). */
+  sensitivity = 1;
   onRelease = () => {};
 
   private lastX = 0;
@@ -98,7 +100,7 @@ export class ShotInput {
     if (this.phase !== 'aiming') return;
     if (e.pointerType === 'mouse' ? e.buttons !== 0 : e.buttons === 0) return; // orbiting / hovering touch
     if (this.cameraMode() === 'behind') {
-      this.angle = wrap(this.angle + dx * BEHIND_SENS * (e.shiftKey ? FINE : 1));
+      this.angle = wrap(this.angle + dx * BEHIND_SENS * this.sensitivity * (e.shiftKey ? FINE : 1));
     } else {
       this.aimAtPointer(e);
     }
@@ -118,7 +120,7 @@ export class ShotInput {
   }
 
   private onKey(e: KeyboardEvent, down: boolean): void {
-    if ((e.target as HTMLElement).closest?.('.lil-gui')) return;
+    if (isFormTarget(e)) return;
     const k = e.key.toLowerCase();
     if (k === ' ') {
       e.preventDefault();
@@ -131,7 +133,10 @@ export class ShotInput {
       return;
     }
     if (!down) return;
-    if (k === 'escape') return this.cancel();
+    if (k === 'escape' && this.phase === 'pulling') {
+      e.preventDefault(); // so the pause menu doesn't also open
+      return this.cancel();
+    }
     if (!this.enabled || this.phase !== 'aiming') return;
     const step = e.shiftKey ? 0.001 : 0.01;
     if (k === 'arrowleft') this.angle = wrap(this.angle - step);

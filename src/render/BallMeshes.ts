@@ -1,18 +1,7 @@
 import * as THREE from 'three';
 import { BALL_RADIUS } from '../config/table';
 import type { Ball } from '../physics/Ball';
-
-const COLORS = [
-  '#f2c200',
-  '#1a4fc4',
-  '#d42020',
-  '#5b2a86',
-  '#f07a12',
-  '#127a3a',
-  '#7a1a1a',
-  '#111111',
-];
-const IVORY = '#f4f1e8';
+import { ballColor, IVORY } from '../config/balls';
 
 /** Equirectangular 2:1 texture: at the equator both axes have the same angular scale, so circles stay round. */
 function ballTexture(n: number): THREE.CanvasTexture {
@@ -22,7 +11,7 @@ function ballTexture(n: number): THREE.CanvasTexture {
   c.width = w;
   c.height = h;
   const g = c.getContext('2d')!;
-  const color = n === 0 ? IVORY : COLORS[(n - 1) % 8]!;
+  const color = ballColor(n);
   g.fillStyle = n > 8 ? IVORY : color;
   g.fillRect(0, 0, w, h);
   if (n > 8) {
@@ -53,7 +42,8 @@ const _axis = new THREE.Vector3();
 
 /** Copy physics state to the mesh and roll it by ω·dt, so the numbers visibly turn. */
 export function syncBallMesh(mesh: THREE.Mesh, b: Ball, dt: number): void {
-  mesh.visible = b.state !== 'pocketed';
+  if (b.state === 'pocketed') return; // PocketDrop animates it out
+  mesh.visible = true;
   mesh.position.set(b.x, BALL_RADIUS, b.z);
   const w = Math.hypot(b.wx, b.wy, b.wz);
   if (w > 0) {
