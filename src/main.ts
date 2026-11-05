@@ -20,7 +20,8 @@ import { createGameHud } from './ui/GameHud';
 import { Game } from './game/GameStateMachine';
 import { AiPlayer } from './ai/AiPlayer';
 import type { Difficulty } from './ai/ShotPlanner';
-import { predictAim } from './physics/aim';
+import { predictShot, type ShotPreview } from './physics/aim';
+import { legalTargets } from './rules/EightBallRules';
 import { DT, PHYSICS } from './config/physics';
 import { BALL_RADIUS as R } from './config/table';
 
@@ -198,6 +199,19 @@ input.onRelease = () => {
 
 const aimGuide = new AimGuide();
 scene.add(aimGuide.group);
+const PREVIEW_POWER = 0.5;
+// the preview re-simulates only when the shot or the table changes (a new rules state = a new turn)
+let preview: ShotPreview;
+let previewKey = '';
+let previewWorld: World | null = null;
+let previewRules: unknown = null;
+/** power^1.5 gives finer control over soft shots. */
+const currentShot = (power: number) => ({
+  angle: input.angle,
+  speed: PHYSICS.maxCueSpeed * power ** 1.5,
+  side: input.side,
+  top: input.top,
+});
 const physicsDebug = createPhysicsDebug();
 physicsDebug.visible = false;
 scene.add(physicsDebug);
@@ -270,13 +284,7 @@ renderer.setAnimationLoop((now) => {
     if (!paused) strikeT += frameDt / STRIKE_TIME;
     gap = strikeFrom * (1 - Math.min(strikeT, 1));
     if (strikeT >= 1) {
-      // power^1.5 gives finer control over soft shots
-      game.shoot({
-        angle: input.angle,
-        speed: PHYSICS.maxCueSpeed * input.power ** 1.5,
-        side: input.side,
-        top: input.top,
-      });
+      game.shoot(currentShot(input.power));
       input.phase = 'aiming';
       input.power = 0;
       aiState = 'idle';
@@ -290,7 +298,20 @@ renderer.setAnimationLoop((now) => {
   }
   aimGuide.group.visible =
     userSettings.aimGuide && showCue && !computer && input.phase !== 'striking';
-  if (aimGuide.group.visible) aimGuide.update(cb.x, cb.z, predictAim(world.balls, 0, input.angle));
+  if (aimGuide.group.visible) {
+    // before pull-back the power is 0, so preview a medium shot to keep the lines visible
+    const shot = currentShot(input.power > 0 ? input.power : PREVIEW_POWER);
+    const key = `${shot.angle},${shot.speed},${shot.side},${shot.top},${cb.x},${cb.z}`;
+    if (key !== previewKey || world !== previewWorld || game.rules !== previewRules) {
+      previewKey = key;
+      previewWorld = world;
+      previewRules = game.rules;
+      preview = predictShot(world.balls, 0, shot);
+    }
+    const legal =
+      preview.objectId !== undefined && legalTargets(game.rules).includes(preview.objectId);
+    aimGuide.update(preview, legal);
+  }
 
   hud.update();
   gameHud.update();
