@@ -37,6 +37,9 @@ export function createGameServer(opts: { origins: string[]; now?: () => number }
   const io = new Server(http, {
     maxHttpBufferSize: MAX_MESSAGE_BYTES,
     cors: { origin: opts.origins.length ? opts.origins : true },
+    // CORS only covers HTTP; browsers don't apply it to websockets, so check the origin here too
+    allowRequest: (req, cb) =>
+      cb(null, !opts.origins.length || opts.origins.includes(req.headers.origin ?? '')),
   });
 
   const roomOps = new Map<string, { n: number; since: number }>();

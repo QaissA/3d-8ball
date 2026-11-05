@@ -18,6 +18,8 @@ interface MenuHandlers {
   /** Online: create a room (resolves with its code) or join one; errors carry a readable message. */
   onCreateRoom: (name: string) => Promise<string>;
   onJoinRoom: (code: string, name: string) => Promise<void>;
+  /** Online mode was picked: a chance to wake the server before Create/Join is clicked. */
+  onPickOnline: () => void;
   /** Online: stop waiting in a room (another mode was picked). */
   onLeaveRoom: () => void;
   onSettingsChange: (s: Settings) => void;
@@ -133,9 +135,10 @@ export function createMenu(h: MenuHandlers) {
     if (mode() !== 'online') {
       netMsg.textContent = '';
       h.onLeaveRoom();
-    }
+    } else h.onPickOnline();
   });
   showModeFields();
+  if (mode() === 'online') h.onPickOnline();
 
   overlay.addEventListener('click', (e) => {
     const act = (e.target as HTMLElement).closest<HTMLElement>('[data-act]')?.dataset.act;
@@ -160,9 +163,15 @@ export function createMenu(h: MenuHandlers) {
               netMsg.innerHTML = `Room code <strong class="room-code">${esc(c)}</strong><br>Share it with your opponent. Waiting for them to join…`;
             })
           : h.onJoinRoom(code, name).then(() => (netMsg.textContent = 'Joined. Starting…'));
-      done.catch((err: unknown) => {
-        netMsg.textContent = err instanceof Error ? err.message : 'Something went wrong';
-      });
+      // a sleeping server takes a while to answer: say so instead of looking stuck
+      const slow = setTimeout(() => {
+        netMsg.textContent = 'Waking up the game server. This can take up to a minute…';
+      }, 4000);
+      done
+        .catch((err: unknown) => {
+          netMsg.textContent = err instanceof Error ? err.message : 'Something went wrong';
+        })
+        .finally(() => clearTimeout(slow));
     } else if (act === 'resume') show(null);
     else if (act === 'new') {
       show(null);

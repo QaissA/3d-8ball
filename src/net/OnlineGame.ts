@@ -26,6 +26,8 @@ export interface OnlineHooks {
 
 const SEND_EVERY_MS = 100; // aim/placement updates to the opponent, ~10 Hz
 const ACK_MS = 8000;
+// free hosting (Render) sleeps when idle and takes up to a minute to wake; socket.io keeps retrying
+const CONNECT_MS = 90_000;
 const POS_EPS = 1e-6; // m: tables closer than this count as identical
 
 type Queued = { kind: 'shoot'; m: ShotMsg } | { kind: 'settled'; m: Snapshot };
@@ -252,7 +254,10 @@ export class OnlineGame {
     if (!this.socket.connected) {
       this.socket.connect();
       await new Promise<void>((resolve, reject) => {
-        const t = setTimeout(() => reject(new Error('Could not reach the game server')), ACK_MS);
+        const t = setTimeout(
+          () => reject(new Error('Could not reach the game server')),
+          CONNECT_MS,
+        );
         this.socket.once('connect', () => {
           clearTimeout(t);
           resolve();

@@ -136,6 +136,8 @@ const menu = createMenu({
     return getOnline().join(code, name);
   },
   onLeaveRoom: () => online?.leave(),
+  // wake a sleeping server early; the response itself doesn't matter
+  onPickOnline: () => void fetch(`${SERVER_URL}/healthz`, { mode: 'no-cors' }).catch(() => {}),
   onSettingsChange() {
     applySettings();
     saveSettings(userSettings);

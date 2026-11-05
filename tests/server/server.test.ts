@@ -136,3 +136,23 @@ test('two players: create, join, turn-checked relay, settle, disconnect', async 
   b.close();
   expect(await left).toMatchObject({ graceMs: RECONNECT_GRACE_MS });
 });
+
+test('origin allowlist also applies to websocket connections', async () => {
+  const strict = createGameServer({ origins: ['https://game.example'] });
+  await new Promise<void>((r) => strict.http.listen(0, r));
+  const base = `http://localhost:${(strict.http.address() as AddressInfo).port}`;
+  const attempt = (origin: string) =>
+    new Promise<string>((resolve) => {
+      const s = connect(base, {
+        transports: ['websocket'],
+        forceNew: true,
+        reconnection: false,
+        extraHeaders: { origin },
+      });
+      s.on('connect', () => (s.close(), resolve('connected')));
+      s.on('connect_error', () => (s.close(), resolve('refused')));
+    });
+  expect(await attempt('https://evil.example')).toBe('refused');
+  expect(await attempt('https://game.example')).toBe('connected');
+  strict.close();
+});
