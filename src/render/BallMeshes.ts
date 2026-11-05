@@ -5,8 +5,8 @@ import { ballColor, IVORY } from '../config/balls';
 
 /** Equirectangular 2:1 texture: at the equator both axes have the same angular scale, so circles stay round. */
 function ballTexture(n: number): THREE.CanvasTexture {
-  const w = 1024;
-  const h = 512;
+  const w = 512; // a ball is at most a few hundred px on screen; 512 keeps GPU memory low
+  const h = 256;
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;

@@ -1,7 +1,30 @@
 import * as THREE from 'three';
 
+function notice(text: string): HTMLElement {
+  const el = document.createElement('div');
+  el.textContent = text;
+  el.setAttribute('role', 'alert');
+  el.style.cssText =
+    'position:fixed;inset:auto 16px 50% 16px;text-align:center;font:16px system-ui,sans-serif;color:#eee;text-shadow:0 1px 3px #000;z-index:20';
+  document.body.appendChild(el);
+  return el;
+}
+
 export function createRenderer(camera: THREE.PerspectiveCamera): THREE.WebGLRenderer {
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  let renderer: THREE.WebGLRenderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+  } catch (err) {
+    notice(
+      'This game needs WebGL, which this browser or device has turned off or does not support.',
+    );
+    throw err;
+  }
+  // three.js keeps running and re-creates GPU resources when the context comes back
+  const lost = notice('Graphics were interrupted. Restoring…');
+  lost.hidden = true;
+  renderer.domElement.addEventListener('webglcontextlost', () => (lost.hidden = false));
+  renderer.domElement.addEventListener('webglcontextrestored', () => (lost.hidden = true));
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -26,7 +49,9 @@ export function applyQuality(
   lamp: THREE.SpotLight,
   quality: 'low' | 'medium' | 'high',
 ): void {
-  const cap = quality === 'high' ? 2 : quality === 'medium' ? 1.5 : 1;
+  // phones and tablets (coarse pointer) are capped at 1.5x: small screens, limited GPUs
+  const mobile = window.matchMedia('(pointer: coarse)').matches;
+  const cap = Math.min(quality === 'high' ? 2 : quality === 'medium' ? 1.5 : 1, mobile ? 1.5 : 2);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, cap));
   const shadows = quality !== 'low';
   if (renderer.shadowMap.enabled !== shadows) {

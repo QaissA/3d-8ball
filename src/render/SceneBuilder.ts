@@ -6,8 +6,14 @@ import { TABLE } from '../config/table';
 
 export function addLighting(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
   // Built-in procedural room for reflections; swap for a Poly Haven HDRI in the art pass.
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  // rendered on the GPU, so it is lost with the WebGL context and must be rebuilt after a restore
+  const buildEnvironment = () => {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+  };
+  buildEnvironment();
+  renderer.domElement.addEventListener('webglcontextrestored', buildEnvironment);
   scene.environmentIntensity = 0.4;
 
   const lamp = new THREE.SpotLight(0xfff4e0, 40, 4, Math.PI / 4, 0.6, 1.5);

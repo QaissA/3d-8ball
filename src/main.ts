@@ -240,6 +240,7 @@ if (import.meta.env.DEV)
   Object.assign(window, {
     pool: {
       scene,
+      renderer,
       camera,
       input,
       aimGuide,

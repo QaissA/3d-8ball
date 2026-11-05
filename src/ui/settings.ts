@@ -13,7 +13,9 @@ const DEFAULTS: Settings = {
   volume: 0.8,
   aimGuide: true,
   sensitivity: 1,
-  quality: 'high',
+  // phones and tablets start on medium
+  quality:
+    typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? 'medium' : 'high',
   names: ['Player 1', 'Player 2'],
 };
 

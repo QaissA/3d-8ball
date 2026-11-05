@@ -50,7 +50,7 @@ export function createMenu(h: MenuHandlers) {
       </section>
       <section data-screen="credits">
         <h2>Credits</h2>
-        <p>Pool table, cue and rack model: “<a href="https://sketchfab.com/3d-models/pool-table-billiard-table-with-cues-and-balls-22c70c00209d4fd1a009f9814f239460" target="_blank" rel="noopener">Pool Table - Billiard Table with Cues and Balls</a>” by Mark Peters, licensed under <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a> (pruned and compressed).</p>
+        <p>Pool table and cue model: “<a href="https://sketchfab.com/3d-models/pool-table-billiard-table-with-cues-and-balls-22c70c00209d4fd1a009f9814f239460" target="_blank" rel="noopener">Pool Table - Billiard Table with Cues and Balls</a>” by Mark Peters, licensed under <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a> (pruned and compressed).</p>
         <p>Balls, sounds and physics are generated in code. Built with <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a>.</p>
         <button data-act="back" class="primary">Back</button>
       </section>
