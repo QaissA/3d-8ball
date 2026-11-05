@@ -60,17 +60,17 @@ Order: **A → B → C → D → E**. A and B are self-contained UI work you can
 ## Phase B: Mini-map top view (1 day)
 
 ### Tasks
-- [ ] `render/MiniMap.ts`: an `OrthographicCamera` looking straight down at the table, sized to fit the outer frame (≈ 2.45 × 1.45 m, the same numbers as the `overhead` mode in `CameraRig`).
-- [ ] Render pass in the `main.ts` animation loop after the main render:
+- [x] `render/MiniMap.ts`: an `OrthographicCamera` looking straight down at the table, sized to fit the outer frame (≈ 2.45 × 1.45 m, the same numbers as the `overhead` mode in `CameraRig`).
+- [x] Render pass in the `main.ts` animation loop after the main render:
   - `renderer.setScissorTest(true)`, then `setViewport`/`setScissor` to a top-left rect (e.g. 22% of width, aspect from the table, 12 px margin, smaller on phones);
   - `renderer.render(scene, miniCam)`, then restore the viewport and scissor.
   - Watch for the WebGL y-origin being bottom-left: top-left means `y = height - h - margin`.
-- [ ] Use a three.js **layer** so the mini-map shows the balls, the table and the aim guide but **not** the cue stick or the hand ring. Thicker guide strips for the mini-map are optional.
-- [ ] Frame: a CSS-positioned border/rounded box `div` over the same rect (pointer-events none). Re-layout on resize.
-- [ ] Avoid overlapping the existing HUD (`GameHud`, the pause button). Move them if they sit top-left today.
-- [ ] Settings: "Mini-map" on/off checkbox (default on for desktop and off on `low` quality). Persist it with the existing `settings.ts` load/save and validation.
-- [ ] Performance: the mini-map doubles draw calls. Skip shadows for that pass (the lamp's shadow map is already rendered this frame), and on `low` quality render it every 2nd frame. Re-check the < 50 draw-call budget.
-- [ ] Hide it when the main camera is already in `overhead` mode.
+- [x] (the cue's shadow still shows on the map: lights ignore camera layers) Use a three.js **layer** so the mini-map shows the balls, the table and the aim guide but **not** the cue stick or the hand ring. Thicker guide strips for the mini-map are optional.
+- [x] Frame: a CSS-positioned border/rounded box `div` over the same rect (pointer-events none). Re-layout on resize.
+- [x] (map sits below the pause button; nothing moved) Avoid overlapping the existing HUD (`GameHud`, the pause button). Move them if they sit top-left today.
+- [x] Settings: "Mini-map" on/off checkbox (default on for desktop, off on phones; not tied to quality). Persist it with the existing `settings.ts` load/save and validation.
+- [x] (measured: map pass 21 calls / ~1.8 ms, ~61 calls total; every-2nd-frame dropped: the main pass clears the canvas, so skipping a frame would flicker) Performance: the mini-map doubles draw calls. Skip shadows for that pass (the lamp's shadow map is already rendered this frame), and on `low` quality render it every 2nd frame. Re-check the < 50 draw-call budget.
+- [x] Hide it when the main camera is already in `overhead` mode.
 
 **Done when:** a crisp top view in the top-left corner tracks every ball live, at 60 FPS on the laptop.
 

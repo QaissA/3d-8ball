@@ -11,6 +11,7 @@ import { createPhysicsDebug } from './debug/PhysicsDebug';
 import { addLighting, loadTable } from './render/SceneBuilder';
 import { createBallMesh, syncBallMesh } from './render/BallMeshes';
 import { CameraRig } from './render/CameraRig';
+import { MAIN_ONLY_LAYER, MiniMap } from './render/MiniMap';
 import { CueStick } from './render/CueMesh';
 import { AimGuide } from './render/AimGuide';
 import { ShotInput } from './input/ShotInput';
@@ -37,6 +38,8 @@ controls.maxPolarAngle = Math.PI / 2 - 0.05; // stay above the cloth
 controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
 controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_ROTATE };
 const rig = new CameraRig(camera, controls);
+camera.layers.enable(MAIN_ONLY_LAYER);
+const miniMap = new MiniMap(renderer);
 
 const { lamp } = addLighting(scene, renderer);
 let cue: CueStick | null = null;
@@ -48,6 +51,7 @@ loadTable(scene)
       THREE.Mesh | undefined;
     if (!mesh) throw new Error('cue mesh not found in table.glb');
     cue = new CueStick(mesh);
+    cue.root.traverse((o) => o.layers.set(MAIN_ONLY_LAYER));
     scene.add(cue.root);
   })
   .catch((err) => console.error('Failed to load table model', err));
@@ -105,6 +109,7 @@ function applySettings() {
   audio.setVolume(userSettings.volume);
   input.sensitivity = userSettings.sensitivity;
   applyQuality(renderer, scene, lamp, userSettings.quality);
+  miniMap.enabled = userSettings.miniMap;
 }
 applySettings();
 const menu = createMenu({
@@ -186,6 +191,7 @@ const handRing = new THREE.Mesh(
   new THREE.RingGeometry(R * 1.15, R * 1.45, 32).rotateX(-Math.PI / 2),
   new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.8, depthWrite: false }),
 );
+handRing.layers.set(MAIN_ONLY_LAYER);
 scene.add(handRing);
 
 const STRIKE_TIME = 0.12; // s for the cue to travel forward
@@ -317,6 +323,7 @@ renderer.setAnimationLoop((now) => {
   gameHud.update();
   rig.update(frameDt, cb.x, cb.z, input.angle, aiming);
   renderer.render(scene, camera);
+  miniMap.render(scene, rig.mode !== 'overhead');
   stats?.update();
 });
 

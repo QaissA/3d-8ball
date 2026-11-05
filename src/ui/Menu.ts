@@ -46,6 +46,7 @@ export function createMenu(h: MenuHandlers) {
         <label>Volume <input type="range" name="volume" min="0" max="1" step="0.05" value="${s.volume}"></label>
         <label>Aim sensitivity <input type="range" name="sensitivity" min="0.25" max="3" step="0.05" value="${s.sensitivity}"></label>
         <label class="check"><input type="checkbox" name="aimGuide" ${s.aimGuide ? 'checked' : ''}> Aim guide</label>
+        <label class="check"><input type="checkbox" name="miniMap" ${s.miniMap ? 'checked' : ''}> Mini-map</label>
         <label>Graphics
           <select name="quality">
             ${(['low', 'medium', 'high'] as Quality[]).map((q) => `<option ${q === s.quality ? 'selected' : ''}>${q}</option>`).join('')}
@@ -89,6 +90,7 @@ export function createMenu(h: MenuHandlers) {
     s.volume = Number(q<HTMLInputElement>('[name=volume]').value);
     s.sensitivity = Number(q<HTMLInputElement>('[name=sensitivity]').value);
     s.aimGuide = q<HTMLInputElement>('[name=aimGuide]').checked;
+    s.miniMap = q<HTMLInputElement>('[name=miniMap]').checked;
     s.quality = q<HTMLSelectElement>('[name=quality]').value as Quality;
     h.onSettingsChange(s);
   };

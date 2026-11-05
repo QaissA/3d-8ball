@@ -5,6 +5,8 @@ export const OPPONENTS: Opponent[] = ['human', 'easy', 'medium', 'hard'];
 export interface Settings {
   volume: number; // 0..1
   aimGuide: boolean;
+  /** Top-down view in the top-left corner. */
+  miniMap: boolean;
   sensitivity: number; // 0.25..3
   quality: Quality;
   names: [string, string];
@@ -16,6 +18,8 @@ const KEY = 'pool8.settings';
 const DEFAULTS: Settings = {
   volume: 0.8,
   aimGuide: true,
+  // phones: the screen is small, the map would cover too much of the table
+  miniMap: !(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches),
   sensitivity: 1,
   // phones and tablets start on medium
   quality:
@@ -41,6 +45,7 @@ export function loadSettings(): Settings {
   return {
     volume: clamp(raw.volume, 0, 1, DEFAULTS.volume),
     aimGuide: typeof raw.aimGuide === 'boolean' ? raw.aimGuide : DEFAULTS.aimGuide,
+    miniMap: typeof raw.miniMap === 'boolean' ? raw.miniMap : DEFAULTS.miniMap,
     sensitivity: clamp(raw.sensitivity, 0.25, 3, DEFAULTS.sensitivity),
     quality: ['low', 'medium', 'high'].includes(raw.quality as string)
       ? (raw.quality as Quality)
