@@ -222,3 +222,22 @@
 .game-hud .player[hidden] {
   display: none;
 }
+.net-status {
+  position: fixed;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  z-index: 6;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: #000c;
+  border: 1px solid #ffc10766;
+  color: #ffd54f;
+  font:
+    14px system-ui,
+    sans-serif;
+  pointer-events: none;
+}
+.net-status[hidden] {
+  display: none;
+}

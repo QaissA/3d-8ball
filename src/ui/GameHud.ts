@@ -6,7 +6,7 @@ const ballIcon = (n: number) =>
   `<span class="ball-icon${n > 8 ? ' stripe' : ''}" style="--c:${ballColor(n)}" aria-label="${n}">${n}</span>`;
 
 /** Players with their remaining balls, whose turn, last message, a turn/foul banner, new game. */
-export function createGameHud(game: Game) {
+export function createGameHud(game: Game, onNewGame = () => game.newGame()) {
   const root = document.createElement('div');
   root.className = 'game-hud';
   root.innerHTML = `
@@ -23,7 +23,7 @@ export function createGameHud(game: Game) {
   const players = [...root.querySelectorAll<HTMLElement>('.player')];
   const msg = root.querySelector<HTMLElement>('.msg')!;
   const button = root.querySelector<HTMLButtonElement>('.new-game')!;
-  button.addEventListener('click', () => game.newGame());
+  button.addEventListener('click', () => onNewGame());
 
   function showBanner(text: string, kind = '') {
     banner.textContent = text;

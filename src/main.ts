@@ -20,7 +20,8 @@ import { setupBallInHand } from './input/BallInHand';
 import { createGameHud } from './ui/GameHud';
 import { Game } from './game/GameStateMachine';
 import { ComputerController } from './ai/ComputerController';
-import { type Controller, localController } from './game/Controller';
+import { type Controller, localController, remoteController } from './game/Controller';
+import { OnlineGame } from './net/OnlineGame';
 import { predictShot, type ShotPreview } from './physics/aim';
 import { legalTargets } from './rules/EightBallRules';
 import { DT, PHYSICS } from './config/physics';
@@ -103,7 +104,7 @@ const input = new ShotInput(
   () => rig.mode,
 );
 const hud = createShotHud(input);
-const gameHud = createGameHud(game);
+const gameHud = createGameHud(game, () => newGame());
 
 function applySettings() {
   audio.setVolume(userSettings.volume);
@@ -115,6 +116,7 @@ applySettings();
 const menu = createMenu({
   settings: userSettings,
   onPlay(names) {
+    online?.leave();
     userSettings.names = names;
     saveSettings(userSettings);
     const { mode, difficulty } = userSettings;
@@ -124,7 +126,16 @@ const menu = createMenu({
     game.names = [names[0], mode === 'solo' ? `Computer (${difficulty})` : names[1]];
     game.newRack(0);
   },
-  onNewGame: () => game.newGame(),
+  onNewGame: () => newGame(),
+  onCreateRoom(name) {
+    saveName(name);
+    return getOnline().create(name);
+  },
+  onJoinRoom(code, name) {
+    saveName(name);
+    return getOnline().join(code, name);
+  },
+  onLeaveRoom: () => online?.leave(),
   onSettingsChange() {
     applySettings();
     saveSettings(userSettings);
@@ -135,12 +146,61 @@ setupBallInHand(
   renderer.domElement,
   camera,
   game,
-  () => !menu.isOpen() && seats[game.rules.current]!.kind === 'local',
+  () =>
+    !menu.isOpen() &&
+    seats[game.rules.current]!.kind === 'local' &&
+    (!inOnlineGame() || online!.myTurn),
 );
 
 // Who plays each seat; set from the menu. The computer, when playing, is player 2.
 const computer = new ComputerController(game, input, 1, userSettings.difficulty);
 let seats: Controller[] = [localController, localController];
+
+// Online play through the room server. Created on first use: offline play opens no connection.
+const SERVER_URL =
+  import.meta.env.VITE_SERVER_URL || `${location.protocol}//${location.hostname}:3001`;
+let online: OnlineGame | null = null;
+const inOnlineGame = () => online?.inRoom === true;
+const netStatus = document.createElement('div');
+netStatus.className = 'net-status';
+netStatus.setAttribute('role', 'status');
+netStatus.hidden = true;
+document.body.appendChild(netStatus);
+function getOnline(): OnlineGame {
+  online ??= new OnlineGame(SERVER_URL, game, input, {
+    onReady(r) {
+      seats =
+        r.seat === 0 ? [localController, remoteController] : [remoteController, localController];
+      game.practice = false;
+      game.names = r.names.map((n, i) => (i === r.seat ? `${n} (you)` : n)) as [string, string];
+      game.newRack(r.breaker, r.seed);
+      menu.close();
+    },
+    afterRestore() {
+      for (const b of game.world.balls) {
+        const mesh = meshes.get(b.id)!;
+        if (b.state === 'pocketed') mesh.visible = false;
+        else syncBallMesh(mesh, b, 0);
+      }
+    },
+    onStatus(text) {
+      netStatus.hidden = !text;
+      netStatus.textContent = text ?? '';
+    },
+    onClosed(reason) {
+      netStatus.hidden = true;
+      seats = [localController, localController];
+      menu.showMain(reason);
+    },
+  });
+  return online;
+}
+const newGame = () => (inOnlineGame() ? online!.rematch() : game.newGame());
+function saveName(name: string) {
+  userSettings.names[0] = name;
+  userSettings.mode = 'online';
+  saveSettings(userSettings);
+}
 
 // ring under the cue ball while it's in hand: green = legal spot, red = not
 const handRing = new THREE.Mesh(
@@ -206,7 +266,8 @@ let last = performance.now();
 renderer.setAnimationLoop((now) => {
   const frameDt = Math.min((now - last) / 1000, 0.1);
   last = now;
-  const paused = menu.isOpen();
+  const menuOpen = menu.isOpen();
+  const paused = menuOpen && !inOnlineGame(); // online the opponent plays on, so no real pause
   if (!paused) acc += frameDt * debug.timeScale;
   const world = game.world;
   while (acc >= DT) {
@@ -215,6 +276,7 @@ renderer.setAnimationLoop((now) => {
     acc -= DT;
   }
   game.update();
+  online?.tick(now);
   drops.update(
     paused ? 0 : frameDt,
     (id) => world.balls.find((b) => b.id === id)?.state === 'pocketed',
@@ -238,7 +300,12 @@ renderer.setAnimationLoop((now) => {
   if (!paused) seat.update(frameDt);
   const local = seat.kind === 'local';
   const aiming = game.phase === 'aiming';
-  input.enabled = aiming && !paused && local && input.phase !== 'striking';
+  input.enabled =
+    aiming &&
+    !menuOpen &&
+    local &&
+    input.phase !== 'striking' &&
+    (!inOnlineGame() || online!.myTurn);
   input.update(frameDt);
 
   let gap = pullGap();
@@ -246,6 +313,7 @@ renderer.setAnimationLoop((now) => {
     if (!paused) strikeT += frameDt / STRIKE_TIME;
     gap = strikeFrom * (1 - Math.min(strikeT, 1));
     if (strikeT >= 1) {
+      if (local && inOnlineGame()) online!.sendShot();
       game.shoot(currentShot(input.power));
       input.phase = 'aiming';
       input.power = 0;
@@ -294,6 +362,9 @@ if (import.meta.env.DEV)
       rig,
       game,
       computer,
+      get online() {
+        return online;
+      },
       get world() {
         return game.world;
       },

@@ -12,6 +12,7 @@ import {
   type RulesState,
 } from '../rules/EightBallRules';
 import { ShotRecorder } from '../rules/ShotResult';
+import type { Snapshot } from '../net/protocol';
 import { triangleRack } from './Rack';
 import { clampPlacement, isLegalPlacement } from './placement';
 
@@ -53,9 +54,10 @@ export class Game {
     this.newRack(this.practice || this.breaker === 1 ? 0 : 1); // alternate breaks
   }
 
-  newRack(breaker: Player): void {
+  /** seed: given by the room server online, so both players get the same rack. */
+  newRack(breaker: Player, seed = this.makeSeed()): void {
     this.breaker = breaker;
-    this.seed = this.makeSeed();
+    this.seed = seed;
     this.world = new World(triangleRack(this.seed).map((p) => new Ball(p.number, p.x, p.z)));
     this.world.on((e) => this.recorder.record(e));
     this.rules = newGame(breaker);
@@ -144,6 +146,39 @@ export class Game {
     this.phase = 'ballInHand';
     this.inHand = o.ballInHand;
     if (this.cueBall.state === 'pocketed') this.spot(this.cueBall, HEAD_SPOT_X, -1);
+  }
+
+  /** Where everything is between shots (sent to the other player online). */
+  snapshot(): Snapshot {
+    if (this.phase === 'rolling') throw new Error('snapshot while balls are moving');
+    return {
+      balls: this.world.balls.map((b) => ({
+        id: b.id,
+        x: b.x,
+        z: b.z,
+        pocketed: b.state === 'pocketed',
+      })),
+      rules: structuredClone(this.rules),
+      phase: this.phase,
+      inHand: this.inHand,
+      message: this.message,
+    };
+  }
+
+  /** Put the table and rules exactly as in a snapshot (same balls, so the renderer stays attached). */
+  restore(s: Snapshot): void {
+    for (const sb of s.balls) {
+      const b = this.world.balls.find((x) => x.id === sb.id);
+      if (!b) continue;
+      b.x = sb.x;
+      b.z = sb.z;
+      b.vx = b.vz = b.wx = b.wy = b.wz = 0;
+      b.state = sb.pocketed ? 'pocketed' : 'stationary';
+    }
+    this.rules = structuredClone(s.rules);
+    this.phase = s.phase;
+    this.inHand = s.inHand;
+    this.message = s.message;
   }
 
   /** Put a ball back on the long string at x, sliding along it (dir ±1) to the first free spot. */

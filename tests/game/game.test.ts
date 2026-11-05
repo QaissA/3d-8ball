@@ -81,3 +81,18 @@ test('practice: a scratch keeps the turn (with ball in hand) and re-racks stay w
   expect(game.rules.current).toBe(0);
   expect(game.rules.isBreak).toBe(true);
 });
+
+test('snapshot / restore round trip (what the other player receives online)', () => {
+  const game = new Game(() => 9);
+  game.placeCueBall();
+  game.shoot({ angle: 0.02, speed: 8 });
+  settle(game);
+  const snap = game.snapshot();
+  const other = new Game(() => 9); // same seed: same rack
+  other.restore(JSON.parse(JSON.stringify(snap)));
+  expect(other.snapshot()).toEqual(snap);
+  // restore copies, so later changes don't leak back into the snapshot
+  other.rules.onTable.pop();
+  expect(other.snapshot()).not.toEqual(snap);
+  expect(game.snapshot()).toEqual(snap);
+});

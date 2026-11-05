@@ -55,6 +55,6 @@ test('old single opponent field is migrated to mode + difficulty', () => {
     getItem: () => JSON.stringify({ mode: 'practice', difficulty: 'easy', opponent: 'human' }),
   };
   expect(loadSettings()).toMatchObject({ mode: 'practice', difficulty: 'easy' });
-  g.localStorage = { getItem: () => JSON.stringify({ mode: 'online', difficulty: 'godlike' }) };
+  g.localStorage = { getItem: () => JSON.stringify({ mode: 'arcade', difficulty: 'godlike' }) };
   expect(loadSettings()).toMatchObject({ mode: 'solo', difficulty: 'medium' });
 });

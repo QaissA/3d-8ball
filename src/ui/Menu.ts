@@ -1,12 +1,13 @@
 import type { Difficulty } from '../ai/ShotPlanner';
 import { cleanName, DIFFICULTIES, type Mode, MODES, type Quality, type Settings } from './settings';
+import './menu.css';
 
 const MODE_LABELS: Record<Mode, string> = {
-  solo: 'Vs computer',
+  solo: 'Computer',
   practice: 'Practice',
   local: '2 players',
+  online: 'Online',
 };
-import './menu.css';
 
 type Screen = 'main' | 'pause' | 'settings' | 'credits';
 
@@ -14,6 +15,11 @@ interface MenuHandlers {
   settings: Settings;
   onPlay: (names: [string, string]) => void;
   onNewGame: () => void;
+  /** Online: create a room (resolves with its code) or join one; errors carry a readable message. */
+  onCreateRoom: (name: string) => Promise<string>;
+  onJoinRoom: (code: string, name: string) => Promise<void>;
+  /** Online: stop waiting in a room (another mode was picked). */
+  onLeaveRoom: () => void;
   onSettingsChange: (s: Settings) => void;
   /** Esc opens the pause menu only when this allows it (e.g. not mid pull-back). */
   canPause: () => boolean;
@@ -41,7 +47,15 @@ export function createMenu(h: MenuHandlers) {
             ${DIFFICULTIES.map((d) => `<option ${d === s.difficulty ? 'selected' : ''}>${d}</option>`).join('')}
           </select>
         </label>
-        <button data-act="play" class="primary">Play</button>
+        <div data-for="online" class="online">
+          <button data-act="create">Create room</button>
+          <div class="join">
+            <input name="code" maxlength="5" placeholder="Room code" aria-label="Room code" autocomplete="off" autocapitalize="characters" spellcheck="false">
+            <button data-act="join">Join</button>
+          </div>
+          <p class="net-msg" aria-live="polite"></p>
+        </div>
+        <button data-act="play" class="primary" data-for="solo practice local">Play</button>
         <button data-act="settings">Settings</button>
         <button data-act="credits">Credits</button>
       </section>
@@ -111,9 +125,16 @@ export function createMenu(h: MenuHandlers) {
   const mode = () => q<HTMLInputElement>('[name=mode]:checked').value as Mode;
   const showModeFields = () =>
     overlay.querySelectorAll<HTMLElement>('[data-for]').forEach((el) => {
-      el.hidden = el.dataset.for !== mode();
+      el.hidden = !el.dataset.for!.split(' ').includes(mode());
     });
-  q('fieldset.modes').addEventListener('change', showModeFields);
+  const netMsg = q<HTMLElement>('.net-msg');
+  q('fieldset.modes').addEventListener('change', () => {
+    showModeFields();
+    if (mode() !== 'online') {
+      netMsg.textContent = '';
+      h.onLeaveRoom();
+    }
+  });
   showModeFields();
 
   overlay.addEventListener('click', (e) => {
@@ -128,6 +149,20 @@ export function createMenu(h: MenuHandlers) {
       started = true;
       show(null);
       h.onPlay(names);
+    } else if (act === 'create' || act === 'join') {
+      const name = cleanName(q<HTMLInputElement>('[name=p1]').value, 'Player 1');
+      const code = q<HTMLInputElement>('[name=code]').value;
+      s.mode = 'online';
+      netMsg.textContent = act === 'create' ? 'Creating a room…' : 'Joining…';
+      const done =
+        act === 'create'
+          ? h.onCreateRoom(name).then((c) => {
+              netMsg.innerHTML = `Room code <strong class="room-code">${esc(c)}</strong><br>Share it with your opponent. Waiting for them to join…`;
+            })
+          : h.onJoinRoom(code, name).then(() => (netMsg.textContent = 'Joined. Starting…'));
+      done.catch((err: unknown) => {
+        netMsg.textContent = err instanceof Error ? err.message : 'Something went wrong';
+      });
     } else if (act === 'resume') show(null);
     else if (act === 'new') {
       show(null);
@@ -145,5 +180,18 @@ export function createMenu(h: MenuHandlers) {
   });
 
   show('main');
-  return { isOpen: () => screen !== null };
+  return {
+    isOpen: () => screen !== null,
+    /** An online game started: close the menu. */
+    close() {
+      started = true;
+      netMsg.textContent = '';
+      show(null);
+    },
+    /** Back to the main screen, e.g. the online game ended; msg explains why. */
+    showMain(msg = '') {
+      show('main');
+      netMsg.textContent = msg;
+    },
+  };
 }

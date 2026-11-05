@@ -147,3 +147,35 @@
 .menu label[hidden] {
   display: none;
 }
+.menu .online {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.menu .online[hidden],
+.menu button[hidden] {
+  display: none;
+}
+.menu .online .join {
+  display: flex;
+  gap: 8px;
+}
+.menu .online .join input {
+  flex: 1;
+  min-width: 0;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  font-family: ui-monospace, monospace;
+}
+.menu .net-msg {
+  min-height: 1.5em;
+  text-align: center;
+}
+.menu .room-code {
+  font:
+    600 28px/1.4 ui-monospace,
+    monospace;
+  letter-spacing: 6px;
+  color: #ffc107;
+  user-select: all;
+}

@@ -1,8 +1,8 @@
 import type { Difficulty } from '../ai/ShotPlanner';
 
 export type Quality = 'low' | 'medium' | 'high';
-export type Mode = 'solo' | 'practice' | 'local';
-export const MODES: Mode[] = ['solo', 'practice', 'local'];
+export type Mode = 'solo' | 'practice' | 'local' | 'online';
+export const MODES: Mode[] = ['solo', 'practice', 'local', 'online'];
 export const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
 
 export interface Settings {
@@ -13,7 +13,7 @@ export interface Settings {
   sensitivity: number; // 0.25..3
   quality: Quality;
   names: [string, string];
-  /** solo = vs the computer, practice = alone, local = two people on this device. */
+  /** solo = vs the computer, practice = alone, local = two people on this device, online = by room code. */
   mode: Mode;
   difficulty: Difficulty;
 }

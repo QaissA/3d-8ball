@@ -108,11 +108,13 @@ Order: **A → B → C → D → E**. A and B are self-contained UI work you can
 ### Layout
 ```
 server/
-  package.json        # socket.io, tsx; no shared build step: imports ../src/rules types only
-  src/index.ts        # http + socket.io, CORS allowlist from env
-  src/rooms.ts        # room store (in-memory Map), code generation, seat logic
-  src/protocol.ts     # message types + validators (shared with the client: import from here)
-  tests/rooms.test.ts
+  main.ts      # entry: PORT, ALLOWED_ORIGINS; run with  (Node >= 22.18 runs .ts directly)
+  server.ts    # http + socket.io: validation, rate limits, turn checks, relay
+  rooms.ts     # room store (in-memory Map), codes, seats, tokens, expiry; no sockets
+src/net/
+  protocol.ts  # message types + validators, shared by client and server
+  OnlineGame.ts# client session: create/join/resume, queue, reconciliation
+tests/server/server.test.ts, tests/net/online.test.ts
 ```
 
 ### Protocol (all messages validated server-side; reject anything else)
@@ -121,43 +123,57 @@ server/
 | `room:create` | `{ name }` | Returns `{ code, seat: 0, token }` |
 | `room:join` | `{ code, name }` | Returns `{ seat: 1, token, opponentName }`, or an error: not found / full |
 | `room:resume` | `{ code, token }` | Reconnect after a drop, within a grace period (e.g. 60 s) |
-| `game:place` | `{ x, z }` | Ball-in-hand preview, throttled to about 10 Hz; the final spot is sent on placement |
+| `game:place` | `{ x, z }` | Ball-in-hand preview, throttled to about 10 Hz; the final spot travels in `game:shoot`'s `cue` |
 | `game:aim` | `{ angle, power, side, top }` | Throttled to about 10 Hz, so the opponent watches you line up |
-| `game:shoot` | `{ shot, place? }` | Exactly the inputs `Game.shoot` takes |
-| `game:settled` | `{ snapshot, hash }` | Shooter only, after `resolve()`: ball positions/states + `RulesState` + phase |
+| `game:shoot` | `{ angle, power, side, top, cue }` | Shot inputs + cue ball position (covers ball in hand) |
+| `game:settled` | `{ snapshot }` (no hash: the receiver compares the tables itself) | Shooter only, after `resolve()`: ball positions/states + `RulesState` + phase |
 | `game:rematch` / `room:leave` | — | |
 
 Server → client: `room:ready` (both seated, with the rack **seed** and who breaks), every relayed `game:*` event, `room:opponentLeft`, `room:opponentBack`, `error`.
 
 ### Tasks
-- [ ] Room codes: 5 characters from an unambiguous alphabet (no 0/O/1/I/L), checked for collisions, case-insensitive on join.
-- [ ] Two seats per room. Rooms expire after 10 minutes empty or 2 hours total.
-- [ ] Turn enforcement: the server tracks whose turn it is from the last `game:settled` and drops `game:shoot`, `place` or `aim` from the wrong seat.
-- [ ] Validation at this trust boundary: types, finite numbers, ranges (angle, power 0..1, spin within the tip circle, positions on the table), name length (20) and characters. Message size limit and per-socket rate limit. Join attempts rate-limited per IP to stop code guessing.
-- [ ] Reconnect tokens: random 128-bit per seat, only ever sent to that seat.
-- [ ] Health endpoint `/healthz`. Log room counts only, not names.
-- [ ] Tests: create/join/full/expired, wrong-seat shot dropped, invalid payloads rejected, resume with a bad token rejected.
-- [ ] Deploy the server (Fly/Railway/Render), and set `VITE_SERVER_URL` for the client build.
+- [x] Room codes: 5 characters from an unambiguous alphabet (no 0/O/1/I/L), checked for collisions, case-insensitive on join.
+- [x] Two seats per room. Rooms expire after 10 minutes empty or 2 hours total.
+- [x] Turn enforcement: the server tracks whose turn it is from the last `game:settled` and drops `game:shoot`, `place` or `aim` from the wrong seat.
+- [x] Validation at this trust boundary: types, finite numbers, ranges (angle, power 0..1, spin within the tip circle, positions on the table), name length (20) and characters. Message size limit and per-socket rate limit. Join attempts rate-limited per IP to stop code guessing.
+- [x] Reconnect tokens: random 128-bit per seat, only ever sent to that seat.
+- [x] Health endpoint `/healthz`. Log room counts only, not names.
+- [x] Tests: create/join/full/expired, wrong-seat shot dropped, invalid payloads rejected, resume with a bad token rejected.
+- [ ] **Deploy (not done: needs your hosting account).** See "Deploying" below.
 
-**Done when:** two `socket.io-client` scripts can create and join a room and pass a full shot cycle against the deployed server.
+**Done when:** two `socket.io-client` scripts can create and join a room and pass a full shot cycle against the deployed server. *(Passes against a local server in `tests/server` and `tests/net`; not yet deployed.)*
 
 ---
 
 ## Phase E: Online client (3–4 days)
 
 ### Tasks
-- [ ] `src/net/OnlineSession.ts`: connects with `socket.io-client`, exposes `create/join/resume`, typed events from `server/src/protocol.ts`, and connection status.
-- [ ] Menu **Online** screen: name, **Create room** (shows a big code + a copy button + "Waiting for opponent…"), **Join** (code input, uppercase, 5 characters). Show errors inline. Cancel leaves the room.
-- [ ] Start: both clients build the rack from the server's **seed** (`Game` already takes `makeSeed`; `newRack` must accept a given seed). The seat that breaks comes from the server.
-- [ ] Local seat → `LocalController` plus outgoing `aim`/`place` (throttled) and `shoot`. Remote seat → `RemoteController`, which animates the opponent's aim and cue from `game:aim` and plays `game:shoot` through the same `input.onRelease()` path the AI uses.
-- [ ] **Reconciliation:** after `resolve()`, the shooter sends `game:settled` with the snapshot. The receiver compares hashes. If they differ, it snaps balls and rules to the snapshot and logs the divergence (dev console + a counter). Add `Game.snapshot()` / `Game.restore(s)`, which also fix reconnects. Round-trip test.
-- [ ] Input lock: block shooting while waiting for the opponent's `settled`, so the next turn always starts from the agreed state.
-- [ ] Disconnects: banner "Opponent disconnected — waiting 60 s". On `resume`, the server sends the last snapshot. After the timeout, offer "Back to menu" (no AI takeover in v1).
-- [ ] Rematch button on game over (alternating breaks, as `newGame()` does).
-- [ ] Pause menu in online play: there is no real pause; it's just a settings overlay while the game keeps running.
-- [ ] Manual test matrix: Chrome ↔ Safari iOS, Chrome ↔ Firefox. A full game, a scratch, ball in hand, 8 on the break, a reconnect mid-game, closing a tab.
+- [x] `src/net/OnlineSession.ts`: connects with `socket.io-client`, exposes `create/join/resume`, typed events from `server/src/protocol.ts`, and connection status.
+- [x] Menu **Online** mode (in the mode picker, no separate screen): name, **Create room** (big selectable code, no copy button + "Waiting for opponent…"), **Join** (code input, uppercase, 5 characters). Show errors inline. Cancel leaves the room.
+- [x] Start: both clients build the rack from the server's **seed** (`Game` already takes `makeSeed`; `newRack` must accept a given seed). The seat that breaks comes from the server.
+- [x] Local seat → `LocalController` plus outgoing `aim`/`place` (throttled) and `shoot`. Remote seat → `RemoteController`, which animates the opponent's aim and cue from `game:aim` and plays `game:shoot` through the same `input.onRelease()` path the AI uses.
+- [x] **Reconciliation:** after `resolve()`, the shooter sends `game:settled` with the snapshot. The receiver compares hashes. If they differ, it snaps balls and rules to the snapshot and logs the divergence (dev console + a counter). Add `Game.snapshot()` / `Game.restore(s)`, which also fix reconnects. Round-trip test.
+- [x] Input lock: block shooting while waiting for the opponent's `settled`, so the next turn always starts from the agreed state.
+- [x] (resume works on a dropped connection; a reloaded or closed tab can't resume: the token is kept in memory only) Disconnects: banner "Opponent disconnected — waiting 60 s". On `resume`, the server sends the last snapshot. After the timeout, offer "Back to menu" (no AI takeover in v1).
+- [x] Rematch button on game over (alternating breaks, as `newGame()` does).
+- [x] (pause "New game" = rematch for both players) Pause menu in online play: there is no real pause; it's just a settings overlay while the game keeps running.
+- [ ] Manual test matrix (not done: needs the deployed server and real devices): Chrome ↔ Safari iOS, Chrome ↔ Firefox. A full game, a scratch, ball in hand, 8 on the break, a reconnect mid-game, closing a tab.
 
-**Done when:** two people on different networks and browsers finish a full game from a room code, with no divergence left after reconciliation.
+**Done when:** *(automated: two clients play a break + 3 shots through the real server with identical tables, `tests/net/online.test.ts`; browser: create/join/disconnect/timeout checked locally)* two people on different networks and browsers finish a full game from a room code, with no divergence left after reconciliation.
+
+---
+
+### Deploying
+
+1. **Server** (any Node host with websockets: Fly.io, Railway, Render). Start command `npm ci && npm run server`, Node >= 22.18.
+   Env: `NODE_ENV=production`, `ALLOWED_ORIGINS=https://<your game URL>` (comma-separated; the server refuses to start without it in production). `PORT` is usually set by the host.
+   Health check: `GET /healthz`. Rooms live in memory: run **one** instance; a restart ends running games.
+2. **Client**: build with `VITE_SERVER_URL=https://<your server URL> npm run build` and deploy `dist/` as before.
+   Without it, the client looks for the server on port 3001 of the page's own host (what `npm run dev` + `npm run server` use locally).
+
+### Running it locally
+
+`npm run server` (port 3001) and `npm run dev`, then open the game in two browser windows: Online → Create room in one, Join with the code in the other.
 
 ---
 

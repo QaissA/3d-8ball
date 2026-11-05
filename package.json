@@ -6,15 +6,18 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "lint": "eslint src tests",
+    "lint": "eslint src tests server",
     "format": "prettier --write .",
-    "assets:optimize": "node scripts/prune-table.mjs assets-src/pool_table_-_billiard_table_with_cues_and_balls.glb assets-src/table.pruned.glb && gltf-transform optimize assets-src/table.pruned.glb public/models/table.glb --compress meshopt --texture-compress webp --texture-size 2048"
+    "assets:optimize": "node scripts/prune-table.mjs assets-src/pool_table_-_billiard_table_with_cues_and_balls.glb assets-src/table.pruned.glb && gltf-transform optimize assets-src/table.pruned.glb public/models/table.glb --compress meshopt --texture-compress webp --texture-size 2048",
+    "server": "node server/main.ts"
   },
   "type": "module",
   "dependencies": {
     "howler": "2.2.4",
     "lil-gui": "0.21.0",
     "postprocessing": "6.39.6",
+    "socket.io": "4.8.1",
+    "socket.io-client": "4.8.1",
     "three": "0.187.0",
     "zustand": "5.0.16"
   },
@@ -34,5 +37,8 @@
     "vite": "8.3.6",
     "vitest": "5.1.0"
   },
-  "private": true
+  "private": true,
+  "engines": {
+    "node": ">=22.18"
+  }
 }
